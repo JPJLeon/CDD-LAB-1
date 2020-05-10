@@ -7,23 +7,22 @@
 /*
  *  Lectura Archivo
  */
-void Read(float** R, float** G, float** B, int *N, int *S, int** positions, const char *filename) {
+void Read(float** R, float** G, float** B, int *N, int *S, int** posicionesRompecabezas, const char *filename) {
     printf("Leemos el archivo %s!\n", filename); 
     FILE *fp;
     fp = fopen(filename, "r");
     fscanf(fp, "%d %d\n", N, S);
-    // obtenemos segunda linea con nuevas posiciones
+
     int P = (*N) / (*S);
-    int *positions1 = new int[P*P];
-    for(int i = 0; i < P*P; i++){
-	    fscanf(fp, "%*d ", &positions[i]);
-    }
-	
-    
     int imsize = (*N) * (*N);
+
     float* R1 = new float[imsize];
     float* G1 = new float[imsize];
     float* B1 = new float[imsize];
+    int *posicionesTemp = new int[P*P];
+
+    for(int i = 0; i < P*P; i++)
+	    fscanf(fp, "%d ", &(posicionesTemp[i]));
 	for(int i = 0; i < imsize; i++)
 	    fscanf(fp, "%f ", &(R1[i]));
 	for(int i = 0; i < imsize; i++)
@@ -32,7 +31,8 @@ void Read(float** R, float** G, float** B, int *N, int *S, int** positions, cons
 	    fscanf(fp, "%f ", &(B1[i]));
     fclose(fp);
 
-    *R = R1; *G = G1; *B = B1; *positions = positions1;
+    *R = R1; *G = G1; *B = B1; 
+    *posicionesRompecabezas = posicionesTemp;
 }
 
 /*
@@ -56,12 +56,12 @@ void Write(float* R, float* G, float* B,
 }
 
 
-__host__ __device__ int findNewPosition(int P, int position, int* positions){
+__host__ __device__ int findNewPosition(int P, int position, int* posiciones){
 
 	int newPosition;
 
 	for (int j = 0; j < P*P; j++) {
-    	if(position == positions[j]) {
+    	if(position == posiciones[j]) {
         	newPosition = j;
         	break;
     	}
@@ -73,47 +73,50 @@ __host__ __device__ int findNewPosition(int P, int position, int* positions){
 /*
  *  Procesamiento Imagen CPU
  */
-void funcionCPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int N, int S, int* positions){
+void funcionCPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, 
+				 int N, int S, int* posicionesRompecabezas) {
+
 	int P = N/S;
-	//cambiar
+	
 	for (int i = 0; i < N*N; i++){
-		int x = i % N;
-		int y = i / N;
-		int newX = x / P;
-		int newY = y / P;
-		int position = newX + newY * P;
-		int newPosition = findNewPosition(P, position, positions);
-		int newI;
+		int xOriginal = i % N;
+		int yOriginal = i / N;
+		int xRompecabezas = xOriginal / S;
+		int yRompecabezas = yOriginal / S;
+		int indiceRompecabezas = xRompecabezas + yRompecabezas * P;
+		int indiceRompecabezasMezclado =  posicionesRompecabezas[indiceRompecabezas];
+		int xRompecabezasMezclado = indiceRompecabezasMezclado % P;
+		int yRompecabezasMezclado = indiceRompecabezasMezclado / P;
+		int nuevoI = (xOriginal + S * (xRompecabezasMezclado - xRompecabezas)) + N * (yOriginal + S * (yRompecabezasMezclado - yRompecabezas));
 
-		newI = (i + S*S*(newPosition - position));
-
-		Rout[newI] = R[i];
-		Gout[newI] = G[i];
-		Bout[newI] = B[i];
+		Rout[i] = R[nuevoI];
+		Gout[i] = G[nuevoI];
+		Bout[i] = B[nuevoI];
 	}
 }
 
 /*
  *  Procesamiento Imagen GPU
  */
-__global__ void kernelGPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int N, int S, int* positions){
+__global__ void kernelGPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, 
+						   int N, int S, int* posicionesRompecabezas){
 	int i = threadIdx.x + blockDim.x * blockIdx.x;
 	int P = N/S;
 
 	if(i < N*N){
-		int x = i % N;
-		int y = i / N;
-		int newX = x / P;
-		int newY = y / P;
-		int position = newX + newY * P;
-		int newPosition = findNewPosition(P, position, positions);
-		int newI;
+		int xOriginal = i % N;
+		int yOriginal = i / N;
+		int xRompecabezas = xOriginal / S;
+		int yRompecabezas = yOriginal / S;
+		int indiceRompecabezas = xRompecabezas + yRompecabezas * P;
+		int indiceRompecabezasMezclado =  posicionesRompecabezas[indiceRompecabezas];
+		int xRompecabezasMezclado = indiceRompecabezasMezclado % P;
+		int yRompecabezasMezclado = indiceRompecabezasMezclado / P;
+		int nuevoI = (xOriginal + S * (xRompecabezasMezclado - xRompecabezas)) + N * (yOriginal + S * (yRompecabezasMezclado - yRompecabezas));
 
-		newI = (i + S*S*(newPosition - position));
-
-		Rout[newI] = R[i];
-		Gout[newI] = G[i];
-		Bout[newI] = B[i];
+		Rout[i] = R[nuevoI];
+		Gout[i] = G[nuevoI];
+		Bout[i] = B[nuevoI];
 	} 
 }
 
@@ -130,7 +133,9 @@ int main(int argc, char **argv){
 	double ms;
 	float dt;
 	int N, S;
-	int *positions;
+	int P;
+	int *posiciones;
+	int *posicionesDev;
     float *Rhost, *Ghost, *Bhost;
     float *Rhostout, *Ghostout, *Bhostout;
     float *Rdev, *Gdev, *Bdev;
@@ -144,7 +149,9 @@ int main(int argc, char **argv){
     	{"img1600x1600.txt\0", "img1600x1600CPU.txt\0", "img1600x1600GPU.txt\0"}};
 
     for (int i=0; i<5; i++){
-	    Read(&Rhost, &Ghost, &Bhost, &N, &S, &positions, names[i][0]); //leemos archivo y reservamos memoria
+	    Read(&Rhost, &Ghost, &Bhost, &N, &S, &posiciones, names[i][0]); //leemos archivo y reservamos memoria
+
+	    P = N/S;
 
 	    /*
 	     *  Parte CPU
@@ -154,7 +161,7 @@ int main(int argc, char **argv){
 	    Bhostout = new float[N*N];
 
 	    t1 = clock();
-	    funcionCPU(Rhost, Ghost, Bhost, Rhostout, Ghostout, Bhostout, N, S, positions); // Agregar parametros!
+	    funcionCPU(Rhost, Ghost, Bhost, Rhostout, Ghostout, Bhostout, N, S, posiciones); // Agregar parametros!
 	    t2 = clock();
 	    ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
 	    std::cout << "Tiempo CPU: " << ms << "[ms]" << std::endl;
@@ -172,9 +179,11 @@ int main(int argc, char **argv){
 	    cudaMalloc((void**)&Rdev, N * N * sizeof(float));
 	    cudaMalloc((void**)&Gdev, N * N * sizeof(float));
 	    cudaMalloc((void**)&Bdev, N * N * sizeof(float));
+	    cudaMalloc((void**)&posicionesDev, P * P * sizeof(float));
 	    cudaMemcpy(Rdev, Rhost, N * N * sizeof(float), cudaMemcpyHostToDevice);
 	    cudaMemcpy(Gdev, Ghost, N * N * sizeof(float), cudaMemcpyHostToDevice);
 	    cudaMemcpy(Bdev, Bhost, N * N * sizeof(float), cudaMemcpyHostToDevice);
+	    cudaMemcpy(posicionesDev, posiciones, P * P * sizeof(float), cudaMemcpyHostToDevice);
 	        
 	    cudaMalloc((void**)&Rdevout, N * N * sizeof(float));
 	    cudaMalloc((void**)&Gdevout, N * N * sizeof(float));
@@ -183,7 +192,7 @@ int main(int argc, char **argv){
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
 	    cudaEventRecord(ct1);
-	    kernelGPU<<<grid_size, block_size>>>(Rdev, Gdev, Bdev, Rdevout, Gdevout, Bdevout, N, S, positions); // Agregar parametros!
+	    kernelGPU<<<grid_size, block_size>>>(Rdev, Gdev, Bdev, Rdevout, Gdevout, Bdevout, N, S, posicionesDev); // Agregar parametros!
 	    cudaEventRecord(ct2);
 	    cudaEventSynchronize(ct2);
 	    cudaEventElapsedTime(&dt, ct1, ct2);
@@ -199,8 +208,10 @@ int main(int argc, char **argv){
 
 	    cudaFree(Rdev); cudaFree(Gdev); cudaFree(Bdev);
     	cudaFree(Rdevout); cudaFree(Gdevout); cudaFree(Bdevout);
+    	cudaFree(posicionesDev);
     	delete[] Rhost; delete[] Ghost; delete[] Bhost;
     	delete[] Rhostout; delete[] Ghostout; delete[] Bhostout;
+    	delete[] posiciones;
 	}
 	return 0;
 }
