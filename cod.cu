@@ -7,17 +7,19 @@
 /*
  *  Lectura Archivo
  */
-void Read(float** R, float** G, float** B, int** positions, int *N, int *S, const char *filename) {    
+void Read(float** R, float** G, float** B, int *N, int *S, int** positions, const char *filename) {
+    printf("Leemos el archivo %s!\n", filename); 
     FILE *fp;
     fp = fopen(filename, "r");
     fscanf(fp, "%d %d\n", N, S);
-    
     // obtenemos segunda linea con nuevas posiciones
     int P = (*N) / (*S);
     int *positions1 = new int[P*P];
-    for(int i = 0; i < P*P; i++)
-	    fscanf(fp, "%d ", &(positions[i]));
+    for(int i = 0; i < P*P; i++){
+	    fscanf(fp, "%*d ", &positions[i]);
+    }
 	
+    
     int imsize = (*N) * (*N);
     float* R1 = new float[imsize];
     float* G1 = new float[imsize];
@@ -53,30 +55,65 @@ void Write(float* R, float* G, float* B,
     fclose(fp);
 }
 
+
+__host__ __device__ int findNewPosition(int P, int position, int* positions){
+
+	int newPosition;
+
+	for (int j = 0; j < P*P; j++) {
+    	if(position == positions[j]) {
+        	newPosition = j;
+        	break;
+    	}
+	}
+
+	return newPosition;
+}
+
 /*
  *  Procesamiento Imagen CPU
  */
-void funcionCPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int M, int N ){
-
+void funcionCPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int N, int S, int* positions){
+	int P = N/S;
 	//cambiar
-	for (int i = 0; i < N*M; i++){
-		Rout[i] = 1 - R[i];
-		Gout[i] = 1 - G[i];
-		Bout[i] = 1 - B[i];
+	for (int i = 0; i < N*N; i++){
+		int x = i % N;
+		int y = i / N;
+		int newX = x / P;
+		int newY = y / P;
+		int position = newX + newY * P;
+		int newPosition = findNewPosition(P, position, positions);
+		int newI;
+
+		newI = (i + S*S*(newPosition - position));
+
+		Rout[newI] = R[i];
+		Gout[newI] = G[i];
+		Bout[newI] = B[i];
 	}
 }
 
 /*
  *  Procesamiento Imagen GPU
  */
-__global__ void kernelGPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int M, int N){
-	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+__global__ void kernelGPU( float* R, float* G, float* B, float* Rout, float* Gout, float* Bout, int N, int S, int* positions){
+	int i = threadIdx.x + blockDim.x * blockIdx.x;
+	int P = N/S;
 
-	// cambiar
-	if(tid < M*N){
-		Rout[tid] = 1 - R[tid];
-		Gout[tid] = 1 - G[tid];
-		Bout[tid] = 1 - B[tid];
+	if(i < N*N){
+		int x = i % N;
+		int y = i / N;
+		int newX = x / P;
+		int newY = y / P;
+		int position = newX + newY * P;
+		int newPosition = findNewPosition(P, position, positions);
+		int newI;
+
+		newI = (i + S*S*(newPosition - position));
+
+		Rout[newI] = R[i];
+		Gout[newI] = G[i];
+		Bout[newI] = B[i];
 	} 
 }
 
@@ -100,24 +137,28 @@ int main(int argc, char **argv){
     float *Rdevout, *Gdevout, *Bdevout;
     
     //cambiar con los nombres de los archivos correctos
-    //char names[2][3][15] = {{"img.txt\0", "imgPCPU.txt\0", "imgPGPU.txt\0"}, {"imgG.txt\0", "imgGCPU.txt\0", "imgGGPU.txt\0"}};
+    char names[5][3][30] = {{"img100x100.txt\0", "img100x100CPU.txt\0", "img100x100GPU.txt\0"}, 
+    	{"img200x200.txt\0", "img200x200CPU.txt\0", "img200x200GPU.txt\0"},
+    	{"img400x400.txt\0", "img400x400CPU.txt\0", "img400x400GPU.txt\0"},
+    	{"img800x800.txt\0", "img800x800CPU.txt\0", "img800x800GPU.txt\0"},
+    	{"img1600x1600.txt\0", "img1600x1600CPU.txt\0", "img1600x1600GPU.txt\0"}};
 
-    for (int i=0; i<2; i++){
+    for (int i=0; i<5; i++){
 	    Read(&Rhost, &Ghost, &Bhost, &N, &S, &positions, names[i][0]); //leemos archivo y reservamos memoria
 
 	    /*
 	     *  Parte CPU
 	     */
-	    Rhostout = new float[M*N];	//reservamos memoria
-	    Ghostout = new float[M*N];
-	    Bhostout = new float[M*N];
+	    Rhostout = new float[N*N];	//reservamos memoria
+	    Ghostout = new float[N*N];
+	    Bhostout = new float[N*N];
 
 	    t1 = clock();
-	    //funcionCPU(Rhost, Ghost, Bhost, Rhostout, Ghostout, Bhostout, M, N); // Agregar parametros!
+	    funcionCPU(Rhost, Ghost, Bhost, Rhostout, Ghostout, Bhostout, N, S, positions); // Agregar parametros!
 	    t2 = clock();
 	    ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
 	    std::cout << "Tiempo CPU: " << ms << "[ms]" << std::endl;
-	    Write(Rhostout, Ghostout, Bhostout, M, N, names[i][1]);
+	    Write(Rhostout, Ghostout, Bhostout, N, N, names[i][1]);
 
 	    delete[] Rhostout; delete[] Ghostout; delete[] Bhostout;
 	    
@@ -126,35 +167,35 @@ int main(int argc, char **argv){
 	     */
 
 	    int grid_size, block_size = 256;
-	    grid_size = (int)ceil((float) M * N / block_size);
+	    grid_size = (int)ceil((float) N * N / block_size);
 	        
-	    cudaMalloc((void**)&Rdev, M * N * sizeof(float));
-	    cudaMalloc((void**)&Gdev, M * N * sizeof(float));
-	    cudaMalloc((void**)&Bdev, M * N * sizeof(float));
-	    cudaMemcpy(Rdev, Rhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
-	    cudaMemcpy(Gdev, Ghost, M * N * sizeof(float), cudaMemcpyHostToDevice);
-	    cudaMemcpy(Bdev, Bhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	    cudaMalloc((void**)&Rdev, N * N * sizeof(float));
+	    cudaMalloc((void**)&Gdev, N * N * sizeof(float));
+	    cudaMalloc((void**)&Bdev, N * N * sizeof(float));
+	    cudaMemcpy(Rdev, Rhost, N * N * sizeof(float), cudaMemcpyHostToDevice);
+	    cudaMemcpy(Gdev, Ghost, N * N * sizeof(float), cudaMemcpyHostToDevice);
+	    cudaMemcpy(Bdev, Bhost, N * N * sizeof(float), cudaMemcpyHostToDevice);
 	        
-	    cudaMalloc((void**)&Rdevout, M * N * sizeof(float));
-	    cudaMalloc((void**)&Gdevout, M * N * sizeof(float));
-	    cudaMalloc((void**)&Bdevout, M * N * sizeof(float));
+	    cudaMalloc((void**)&Rdevout, N * N * sizeof(float));
+	    cudaMalloc((void**)&Gdevout, N * N * sizeof(float));
+	    cudaMalloc((void**)&Bdevout, N * N * sizeof(float));
 	    
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
 	    cudaEventRecord(ct1);
-	    //kernelGPU<<<grid_size, block_size>>>(Rdev, Gdev, Bdev, Rdevout, Gdevout, Bdevout, M, N); // Agregar parametros!
+	    kernelGPU<<<grid_size, block_size>>>(Rdev, Gdev, Bdev, Rdevout, Gdevout, Bdevout, N, S, positions); // Agregar parametros!
 	    cudaEventRecord(ct2);
 	    cudaEventSynchronize(ct2);
 	    cudaEventElapsedTime(&dt, ct1, ct2);
 	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
 
-	    Rhostout = new float[M*N];
-	    Ghostout = new float[M*N];
-	    Bhostout = new float[M*N];
-	    cudaMemcpy(Rhostout, Rdevout, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-	    cudaMemcpy(Ghostout, Gdevout, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-	    cudaMemcpy(Bhostout, Bdevout, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-	    Write(Rhostout, Ghostout, Bhostout, M, N, names[i][2]);
+	    Rhostout = new float[N*N];
+	    Ghostout = new float[N*N];
+	    Bhostout = new float[N*N];
+	    cudaMemcpy(Rhostout, Rdevout, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+	    cudaMemcpy(Ghostout, Gdevout, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+	    cudaMemcpy(Bhostout, Bdevout, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+	    Write(Rhostout, Ghostout, Bhostout, N, N, names[i][2]);
 
 	    cudaFree(Rdev); cudaFree(Gdev); cudaFree(Bdev);
     	cudaFree(Rdevout); cudaFree(Gdevout); cudaFree(Bdevout);
