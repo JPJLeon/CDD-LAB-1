@@ -12,20 +12,33 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
     int Lres = (*M) * (*N) / X;
     int Largo = (*M) * (*N);
 
-    if (tipo == 0){
-		for(int j=0; j<4; j++){
-	    	for(int i = 0; i < Largo-1; i++){
-		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
-		        printf("%d ", f1[i + j*Largo]);
-	    	}
-		    fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
-		    printf("%d\n", f1[Largo-1 + j*Largo]);
+    if (tipo == 0){ // AoS
+		for(int x=0; x<X; x++){
+			for(int i = 0; i < Largo; i++){
+	        	fscanf(fp, "%d ", &(f1[i*4 + x]));
+		        printf("%d ", f1[i*4 + x]);
+		        // printf("%d ", i*4 + x);
+			}
+			printf("\n");
 	    }
-	    // Datos M = 6, N = 4, X = 4
-	    // Lres = N*M/X = 6
+	    printf("\n");
+	    // Datos M = 6, N = 4
+
+	    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 											23
+	    // 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 											47
+	    // 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 											71
+	    // 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 											95
 	    
-	} else{
-		for(int j=0; j<4; j++){
+	    //  0 24 48 72  1 25 49 73  2 26 50 74  3 27 51 75  4 28 52 76   5 29 53 77  6 30 54 78  7 31 55 79  8 32 56 80 ... 95
+
+	    //  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  1  1  1  1  1  1  1  1  1 ..    		 3	(x) < X
+	    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23  0  1  2  3  4  5  6  7  8 ...			23 (i) < N*M
+
+	    //  i*4 + x
+	    //  0  4  8 12 16 20 24 28 		....  		1  5  9 13 17 21 25 29    ......	2  6 10 14 18 22 	....	3  7 11 15 19 .. 
+
+	} else{ // SoA 
+		for(int j=0; j<X; j++){
 	    	for(int i = 0; i < Largo-1; i++){
 		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
 	    	}
@@ -95,17 +108,12 @@ int main(int argc, char **argv){
 
     	Lres = M*N/4;
 
-
-	    /*
-	     *  Parte GPU
-	     */
-	    gs = (int)ceil((float) M * N * X / bs);
-	        
+	    gs = (int)ceil((float) M * N * X / bs);    
 	    cudaMalloc((void**)&f, M * N * X * sizeof(int));
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 	    
-    	// Write(f_host, Lres, M, N, "initial_f.txt\0");
+    	Write(f_host, Lres, M, N, "initial_f.txt\0");
 
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
@@ -131,7 +139,7 @@ int main(int argc, char **argv){
 	    f_hostout = new int[M * N * X];
 	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    Write(f_hostout, Lres, M, N, "initial_f.txt\0");
+	    // Write(f_hostout, Lres, M, N, "initial_f.txt\0");
 
     	cudaFree(f);
     	cudaFree(f_out);
