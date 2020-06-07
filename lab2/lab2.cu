@@ -82,6 +82,14 @@ void Write_SoA(int *f, int M, int N, const char *filename) {
     fclose(fp);
 }
 
+void validar(int *f, int N, int M){
+	int suma=0;
+	for(int i=0; i<N*M*4; i++){
+		suma += f[i];
+	}
+	printf("Particulas: %d\n", suma);
+}
+
 /*  Procesamiento GPU AoS Coalisiones */
 __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -109,15 +117,12 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 
 /*  Procesamiento GPU AoS Streaming */
 __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
-	// Datos ejemplo
-	// N=4, M=6, tid=10
-
-	//  0  1  2  3  4  5
-	//  6  7  8  9 10 11
-	// 12 13 14 15 16 17
-	// 18 19 20 21 22 23
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if(tid < N*M){
+		// f0: der
+		// f1: arr
+		// f2: izq
+		// f3: abj
 		int x, y, idb, borde=0;
 		idb = tid*4;
 		x = tid % M; // 4
@@ -135,10 +140,6 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 		for(int i=0; i<4; i++){
 			// Seteo todas en 0
 			f_out[idb+i] = 0;
-			// f0: der
-			// f1: arr
-			// f2: izq
-			// f3: abj
 			// Si la particula se mueve en esta direccion
 			if(f[idb+i] == 1){
 				// La direccion del nodo de esa direccion cambia
@@ -155,11 +156,63 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 /*  Procesamiento GPU SoA Coalisiones */
 __global__ void kernelSoA_col(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < M*N){
+		int f0, f1, f2, f3, Largo;
+		Largo = N*M;
+		// Almacenamos los datos en memoria
+		f0 = f[tid];
+		f1 = f[tid+1*Largo];
+		f2 = f[tid+2*Largo];
+		f3 = f[tid+3*Largo];
+		if(f0 && f2 && f1 == 0 && f3 == 0){
+			f[tid] = 0;
+			f[tid+1*Largo] = 1;
+			f[tid+2*Largo] = 0;
+			f[tid+3*Largo] = 1;
+		} else if(f0 == 0 && f2 == 0 && f1 && f3){
+			f[tid] = 1;
+			f[tid+1*Largo] = 0;
+			f[tid+2*Largo] = 1;
+			f[tid+3*Largo] = 0;
+		}
+	}
 }
 
 /*  Procesamiento GPU SoA Streaming */
 __global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < N*M){
+		// f0: der
+		// f1: arr
+		// f2: izq
+		// f3: abj
+		int x, y, borde=0, Largo = N*M;
+		x = tid % M; // 4
+		y = tid / M; // 1
+		// Algo que no entiendo pasaba, que se bajaba en el eje y cuando x == 0
+		if(x == 0){
+			borde = 1;
+		}
+		// Id de los nodos adyacentes
+		int nd[] = { (x+1)%M + (y+borde)*M,
+					x + ((y+1)%N)*M,
+					(x-1)%M + (y+borde)*M,
+					x + ((y-1)%N)*M };
+		// Recorremos las direcciones
+		for(int i=0; i<4; i++){
+			// Seteo todas en 0
+			f_out[tid+1*Largo] = 0;
+			// Si la particula se mueve en esta direccion
+			if(f[tid+1*Largo] == 1){
+				// La direccion del nodo de esa direccion cambia
+				f_out[nd[i]*4+i] += 1;
+			}
+		}
+		// Copio todo en f denuevo
+		for(int i=0; i<4; i++){
+			f[tid+1*Largo] = f_out[tid+1*Largo];
+		}
+	}
 }
 
 /*  Codigo Principal */
@@ -178,7 +231,7 @@ int main(int argc, char **argv){
 	int X = 4;
 
 	// 2 metodos SoA y AoS
-    for (int i=0; i<1; i++){
+    for (int i=0; i<2; i++){
     	Read(&f_host, &M, &N, filename, X, i);
 
 	    gs = (int)ceil((float) M * N * X / bs);    
@@ -186,23 +239,21 @@ int main(int argc, char **argv){
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 	    
-    	// Write_SoA(f_host, M, N, "initial_f.txt\0");
+    	validar(f_host, N, M);
 
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step
-	    for (int j=0; j<2; j++){
-	    	if (i==0){
+	    for (int j=0; j<1; j++){
+	    	if (i == 0){
 	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		// cudaDeviceSynchronize();
 	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, j, N, M);
-	    		// cudaDeviceSynchronize();
 	    	}
 	    	else{
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
+	    		// kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    }
 
@@ -212,9 +263,18 @@ int main(int argc, char **argv){
 	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
 	    f_hostout = new int[M * N * X];
 	    // cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
-	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    Write_AoS(f_hostout, M, N, "initial_f.txt\0");
+	    for (int j=0; j<1; j++){
+	    	if (i == 0){
+	    		Write_AoS(f_hostout, M, N, "initial_f.txt\0");
+	    	}
+	    	else{
+	    		Write_SoA(f_hostout, M, N, "initial_f.txt\0");
+	    	}
+	    }
+
+	    validar(f_hostout, N, M);
 
     	cudaFree(f);
     	cudaFree(f_out);
