@@ -40,7 +40,6 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
 		        // printf("%d ", f1[i + j*Largo]);
 	    	}
-		    // fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
 	    	// printf("\n");
 	    }
 	}
@@ -136,7 +135,7 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int N, int M){
 		// f2: izq
 		// f3: abj
 		int x, y, idb;
-		idb = tid*4;
+		idb = tid*4;        //indice del f0 en el arreglo
 		x = tid % M; // 4
 		y = tid / M; // 1
 		// Id de los nodos adyacentes
@@ -147,15 +146,16 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int N, int M){
 		// Recorremos las direcciones
 		for(int i=0; i<4; i++){
 			// Seteo todas en 0
-			f_out[idb+i] = 0;
+			//f_out[idb+i] = 0;
 			// Si la particula se mueve en esta direccion
 			if(f[idb+i] == 1){
 				// La direccion del nodo de esa direccion cambia
-				f_out[nd[i]*4+i] += 1;
+				f_out[nd[i]*4+i] = 1;
 			}
 		}
 	}
 }
+
 
 /*  Procesamiento GPU SoA Coalisiones */
 __global__ void kernelSoA_col(int *f, int *f_out, int X, int N, int M){
@@ -201,37 +201,183 @@ __global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 		// Recorremos las direcciones
 		for(int i=0; i<X; i++){
 			// Seteo todas en 0
-			f_out[tid+i*Largo] = 0;
+			//f_out[tid + i*Largo] = 0;
 			// Si la particula se mueve en esta direccion
-			if(f[tid+i*Largo] == 1){
+			if(f[tid + i*Largo] == 1){
 				// La direccion del nodo de esa direccion cambia
-				f_out[nd[i] + i*Largo] += 1;
+				f_out[nd[i] + i*Largo] = 1;
 			}
 		}
 	}
 }
 
-/*  Procesamiento GPU SoA Streaming */
-__global__ void kernel_copy(int *f, int *f_out, int tipo, int N, int M){
+__global__ void f_out_0(int *f_out, int N, int M){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < N*M*4){
+    f_out[tid] = 0;
+	}
+}
+
+//--------------------------------------------------------------------------------
+
+//Pregunta 2, condiciones de borde con AoS
+
+/*  Procesamiento GPU AoS Coalisiones */
+__global__ void kernelAoS_col_borde(int *f, int *f_out, int X, int N, int M, int j){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < M*N){
+		int idb = tid*4;
+		int f0, f1, f2, f3, x ,y;
+    x = tid % M; 
+		y = tid / M; 
+
+    // Almacenamos los datos en memoria
+    f0 = f[idb+0];
+    f1 = f[idb+1];
+    f2 = f[idb+2];
+    f3 = f[idb+3];
+
+    bool borde =  (x == 0 || x == M -1 || y == 0 || y == N-1) ;
+    bool horizontal = f0 && f2 && f1 == 0 && f3 == 0;
+    bool vertical = f0 == 0 && f2 == 0 && f1 && f3;
+
+    //if statement
+    if (j == 0){
+      if ( !borde ){ //si es que no se está en algun borde
+        if(horizontal){
+          f[idb] = 0;
+          f[idb+1] = 1;
+          f[idb+2] = 0;
+          f[idb+3] = 1;
+        } else if(vertical){
+          f[idb] = 1;
+          f[idb+1] = 0;
+          f[idb+2] = 1;
+          f[idb+3] = 0;
+        }
+      }
+    }
+
+    //operador ternario
+    else if (j == 1){
+        
+        f[idb] = (borde ? f[idb] : 
+                  (horizontal ? 0:
+                   (vertical ? 1 : f[idb])));
+        f[idb+1] = (borde ? f[idb +1 ] : 
+                  (horizontal ? 1:
+                   (vertical ? 0 : f[idb+ 1])));
+        f[idb+2] = (borde ? f[idb +2] : 
+                  (horizontal ? 0:
+                   (vertical ? 1 : f[idb +2])));
+        f[idb+3] = (borde ? f[idb +3] : 
+                  (horizontal ? 1:
+                   (vertical ? 0 : f[idb + 3])));
+    }
+
+    //operador booleano
+    else if (j == 2){
+        f[idb] =  (borde) * f[idb]  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb]));
+        f[idb+ 1] =  (borde) * f[idb+ 1]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 1]));
+        f[idb+ 2] =  (borde) * f[idb+ 2]  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb+ 2]));
+        f[idb+ 3] =  (borde) * f[idb+ 3]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 3]));
+    }
+	}
+}
+
+
+/*  Procesamiento GPU AoS Streaming */
+__global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if(tid < N*M){
-		int Largo = N*M;
-		int id;
-		// Recorremos las direcciones
-		for(int i=0; i<4; i++){
-			if(tipo == 0){
-				id = tid+i*Largo;
-			} else{
-				id = tid*4 + i;
-			}
-			f[id] = f_out[id];
-		}
+		int x, y, idb;
+		idb = tid*4;        //indice del f0 en el arreglo
+		x = tid % M; 
+		y = tid / M; 
+		// Id de los nodos adyacentes
+		int nd[] = {modulo(x+1,M)  + y              *M, 
+					      x              + modulo(y+1, N) *M, 
+					      modulo(x-1, M) + y              *M, 
+					      x              + modulo(y-1, N) *M };
+
+
+
+		// if statement
+    if (j == 0){
+      for(int i=0; i<4; i++){
+        // Seteo todas en 0
+        f_out[idb+i] = 0;
+
+        //condiciones de borde
+        bool sur = (y == 0 && i==3);
+        bool norte = (y == N-1 && i == 1);
+        bool oeste = (x == 0 && i == 2);
+        bool este = (x == M-1 && i == 0);
+        // Si la particula se mueve en esta direccion
+        if(f[idb+i] == 1){                               //si fi == 0
+            if (sur){                         //si se mueve hacia abajo en el borde inferior
+                f_out[nd[1] * 4 + 1] = 1;                //rebota hacia arriba 
+            }
+            else if (norte){
+                f_out[nd[3] * 4 + 3] = 1;
+            }
+            else if (oeste){
+                f_out[nd[0] *4 + 0] = 1;
+            } 
+            else if (este){
+                f_out[nd[2] * 4 + 2] = 1;
+            }
+            else{
+                f_out[nd[i]*4+i] = 1;      
+            }
+        }
+      }
+    }
+
+    //operador ternario
+    else if(j == 1){
+      for(int i=0; i<4; i++){
+        // Seteo todas en 0
+        f_out[idb+i] = 0;
+
+        bool sur = (y == 0 && i==3);
+        bool norte = (y == N-1 && i == 1);
+        bool oeste = (x == 0 && i == 2);
+        bool este = (x == M-1 && i == 0);
+        
+        !(f[idb+i] == 1) ? true : 
+            (sur) ?  f_out[nd[1] * 4 + 1] = 1 :
+              (norte) ? f_out[nd[3] * 4 + 3] = 1:
+                (oeste) ? f_out[nd[0] *4 + 0] = 1 : 
+                  (este) ? f_out[nd[2] * 4 + 2] = 1 : f_out[nd[i]*4+i] = 1;
+       
+        }
+      }
+
+      //operador booleano
+      else if (j == 2){
+        for(int i=0; i<4; i++){
+          // Seteo todas en 0
+          f_out[idb+i] = 0;
+
+          bool activo = (f[idb+i] == 1);
+          bool sur = (y == 0 && i==3);
+          bool norte = (y == N-1 && i == 1);
+          bool oeste = (x == 0 && i == 2);
+          bool este = (x == M-1 && i == 0);
+
+          f_out[nd[1] * 4 + 1]  = activo * sur; 
+          f_out[nd[3] * 4 + 3] = activo * abs(sur-1) * norte;
+          f_out[nd[0] *4 + 0]   = activo * abs(sur-1) * abs(norte-1) * oeste; 
+          f_out[nd[2] * 4 + 2]  = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * este;
+          f_out[nd[i]*4+i]      = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * abs(este-1);
+      }
+    }
 	}
 }
 
 /*  Codigo Principal */
 int main(int argc, char **argv){
-
     /*
      *  Inicializacion
      */
@@ -262,6 +408,7 @@ int main(int argc, char **argv){
 
 	    // Iteraciones de time step 
 	    for (int j=0; j<1000; j++){
+        f_out_0<<<gs, bs>>>(f_out, N, M);
 	    	if (i == 0){
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
@@ -271,17 +418,19 @@ int main(int argc, char **argv){
 	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	//memory swap
-	    	kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
-			// temp = f; Me tiraba error por esto, pienso que es porque asignamos memoria de gpu en cpu
-			// f = f_out;
-			// f_out = temp;
+	    	//kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
+			  temp = f; //Me tiraba error por esto, pienso que es porque asignamos memoria de gpu en cpu
+			  f = f_out;
+			  f_out = temp;
+        cudaDeviceSynchronize();
 	    }
+      
 
 	    cudaEventRecord(ct2);
 	    cudaEventSynchronize(ct2);
 	    cudaEventElapsedTime(&dt, ct1, ct2);
 	    f_hostout = new int[M * N * X];
-	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
 	    if (i == 0){
     		Write_SoA(f_hostout, M, N, "initial_S.txt\0");
