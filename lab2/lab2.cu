@@ -88,6 +88,7 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	if(tid < M*N){
 		int idb = tid*4;
 		int f0, f1, f2, f3;
+		// Almacenamos los datos en memoria
 		f0 = f[idb];
 		f1 = f[idb+1];
 		f2 = f[idb+2];
@@ -107,7 +108,7 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 }
 
 /*  Procesamiento GPU AoS Streaming */
-__global__ void kernelAoS_stream(int *f, int *f_out, int X, int N, int M){
+__global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 	// Datos ejemplo
 	// N=4, M=6, tid=10
 
@@ -121,6 +122,7 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int X, int N, int M){
 		idb = tid*4;
 		x = tid % M; // 4
 		y = tid / M; // 1
+		// Algo que no entiendo pasaba, que se bajaba en el eje y cuando x == 0
 		if(x == 0){
 			borde = 1;
 		}
@@ -142,6 +144,10 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int X, int N, int M){
 				// La direccion del nodo de esa direccion cambia
 				f_out[nd[i]*4+i] += 1;
 			}
+		}
+		// Copio todo en f denuevo
+		for(int i=0; i<4; i++){
+			f[idb+i] = f_out[idb+i];
 		}
 	}
 }
@@ -171,7 +177,7 @@ int main(int argc, char **argv){
 	int gs, bs = 256;
 	int X = 4;
 
-	// Iteramos los 2 metodos SoA y AoS
+	// 2 metodos SoA y AoS
     for (int i=0; i<1; i++){
     	Read(&f_host, &M, &N, filename, X, i);
 
@@ -187,10 +193,12 @@ int main(int argc, char **argv){
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step
-	    for (int j=0; j<1; j++){
+	    for (int j=0; j<2; j++){
 	    	if (i==0){
 	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, X, N, M);
+	    		// cudaDeviceSynchronize();
+	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, j, N, M);
+	    		// cudaDeviceSynchronize();
 	    	}
 	    	else{
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
