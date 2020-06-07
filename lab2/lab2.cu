@@ -47,7 +47,25 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 }
 
 /*  Escritura de archivo initial con array */
-void Write(int *f, int M, int N, const char *filename) {
+void Write_AoS(int *f, int M, int N, const char *filename) {
+    FILE *fp;
+    fp = fopen(filename, "w");
+    fprintf(fp, "%d %d\n", N, M);
+    int Largo = M*N;
+    for(int j=0; j<4; j++){
+    	for(int i = 0; i < Largo-1; i++){
+	        fprintf(fp, "%d ", f[i*4 + j]);
+	    	printf("%d ", f[i*4 + j]);
+	    }
+	    fprintf(fp, "%d\n", f[(Largo-1)*4 + j]);
+	    printf("%d\n", f[(Largo-1)*4 + j]);
+    }
+    printf("\n");
+    fclose(fp);
+}
+
+/*  Escritura de archivo initial con array */
+void Write_SoA(int *f, int M, int N, const char *filename) {
     FILE *fp;
     fp = fopen(filename, "w");
     fprintf(fp, "%d %d\n", N, M);
@@ -60,6 +78,7 @@ void Write(int *f, int M, int N, const char *filename) {
 	    fprintf(fp, "%d\n", f[Largo-1 + j*Largo]);
 	    printf("%d\n", f[Largo-1 + j*Largo]);
     }
+    printf("\n");
     fclose(fp);
 }
 
@@ -73,12 +92,12 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 		f1 = f[idb+1];
 		f2 = f[idb+2];
 		f3 = f[idb+3];
-		if(f0 == 1 && f2 == 1 && f1 == 0 && f3 == 0){
+		if(f0 && f2 && f1 == 0 && f3 == 0){
 			f[idb] = 0;
 			f[idb+1] = 1;
 			f[idb+2] = 0;
 			f[idb+3] = 1;
-		} else if(f0 == 0 && f2 == 0 && f1 == 1 && f3 == 1){
+		} else if(f0 == 0 && f2 == 0 && f1 && f3){
 			f[idb] = 1;
 			f[idb+1] = 0;
 			f[idb+2] = 1;
@@ -91,20 +110,39 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 __global__ void kernelAoS_stream(int *f, int *f_out, int X, int N, int M){
 	// Datos ejemplo
 	// N=4, M=6, tid=10
+
 	//  0  1  2  3  4  5
 	//  6  7  8  9 10 11
 	// 12 13 14 15 16 17
 	// 18 19 20 21 22 23
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if(tid < N*M){
-		int x, y;
+		int x, y, idb, borde=0;
+		idb = tid*4;
 		x = tid % M; // 4
 		y = tid / M; // 1
-		int nd_arr[] = {x, (y-1) % N};
-		int nd_abj[] = {x, (y+1) % N};
-		int nd_izq[] = {(x-1) % M, y};
-		int nd_der[] = {(x+1) % M, y};
-		
+		if(x == 0){
+			borde = 1;
+		}
+		// Id de los nodos adyacentes
+		int nd[] = { (x+1)%M + (y+borde)*M, 
+					x + ((y+1)%N)*M, 
+					(x-1)%M + (y+borde)*M, 
+					x + ((y-1)%N)*M };
+		// Recorremos las direcciones
+		for(int i=0; i<4; i++){
+			// Seteo todas en 0
+			f_out[idb+i] = 0;
+			// f0: der
+			// f1: arr
+			// f2: izq
+			// f3: abj
+			// Si la particula se mueve en esta direccion
+			if(f[idb+i] == 1){
+				// La direccion del nodo de esa direccion cambia
+				f_out[nd[i]*4+i] += 1;
+			}
+		}
 	}
 }
 
@@ -142,14 +180,14 @@ int main(int argc, char **argv){
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 	    
-    	Write(f_host, M, N, "initial_f.txt\0");
+    	// Write_SoA(f_host, M, N, "initial_f.txt\0");
 
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step
-	    for (int j=0; j<0; j++){
+	    for (int j=0; j<1; j++){
 	    	if (i==0){
 	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, X, N, M);
@@ -164,11 +202,11 @@ int main(int argc, char **argv){
 	    cudaEventSynchronize(ct2);
 	    cudaEventElapsedTime(&dt, ct1, ct2);
 	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
-
 	    f_hostout = new int[M * N * X];
+	    // cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    // Write(f_hostout, M, N, "initial_f.txt\0");
+	    Write_AoS(f_hostout, M, N, "initial_f.txt\0");
 
     	cudaFree(f);
     	cudaFree(f_out);
