@@ -38,8 +38,10 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 		for(int j=0; j<X; j++){
 	    	for(int i = 0; i < Largo-1; i++){
 		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
+		        printf("%d ", f1[i + j*Largo]);
 	    	}
 		    fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
+	    	printf("%d\n", f1[Largo-1 + j*Largo]);
 	    }
 	}
     fclose(fp);
@@ -90,6 +92,15 @@ void validar(int *f, int N, int M){
 	printf("Particulas: %d\n", suma);
 }
 
+//funcion auxiliar %, funciona con entradas negativas
+__device__ int modulo(int a, int b){
+    //a%b
+    if (a >= 0){
+        return a %b;
+    }
+    return b + a;
+}
+
 /*  Procesamiento GPU AoS Coalisiones */
 __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -115,32 +126,19 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	}
 }
 
-//funcion auxiliar %, funciona con entradas negativas
-__device__ int modulo(int a, int b){
-    //a%b
-    if (a >= 0){
-        return a %b;
-    }
-    return b + a;
-}
-
 
 /*  Procesamiento GPU AoS Streaming */
-__global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
+__global__ void kernelAoS_stream(int *f, int *f_out, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if(tid < N*M){
 		// f0: der
 		// f1: arr
 		// f2: izq
 		// f3: abj
-		int x, y, idb, borde=0;
+		int x, y, idb;
 		idb = tid*4;
 		x = tid % M; // 4
 		y = tid / M; // 1
-		// Algo que no entiendo pasaba, que se bajaba en el eje y cuando x == 0
-		if(x == 0){
-			borde = 1;
-		}
 		// Id de los nodos adyacentes
 		int nd[] = {modulo(x+1,M)  + y              *M, 
 					x              + modulo(y+1, N) *M, 
@@ -192,18 +190,14 @@ __global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 		// f1: arr
 		// f2: izq
 		// f3: abj
-		int x, y, borde=0, Largo = N*M;
+		int x, y, Largo = N*M;
 		x = tid % M; // 4
 		y = tid / M; // 1
-		// Algo que no entiendo pasaba, que se bajaba en el eje y cuando x == 0
-		if(x == 0){
-			borde = 1;
-		}
 		// Id de los nodos adyacentes
-		int nd[] = { (x+1)%M + (y+borde)*M,
-					x + ((y+1)%N)*M,
-					(x-1)%M + (y+borde)*M,
-					x + ((y-1)%N)*M };
+		int nd[] = { modulo(x+1,M) + y*M,
+					x + modulo(y+1,N)*M,
+					modulo(x-1,M) + y*M,
+					x + modulo(y-1,N)*M };
 		// Recorremos las direcciones
 		for(int i=0; i<4; i++){
 			// Seteo todas en 0
@@ -215,9 +209,9 @@ __global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 			}
 		}
 		// Copio todo en f denuevo
-		for(int i=0; i<4; i++){
-			f[tid+1*Largo] = f_out[tid+1*Largo];
-		}
+		// for(int i=0; i<4; i++){
+		// 	f[tid+1*Largo] = f_out[tid+1*Largo];
+		// }
 	}
 }
 
@@ -231,17 +225,18 @@ int main(int argc, char **argv){
 	float dt;
 	// N eje y, M eje x
 	int M, N;
-    int *f_host, *f_hostout, *f, *f_out;
+    int *f_host, *f_hostout, *f, *f_out, *temp;
     char filename[15] = "initial.txt\0";
 	int gs, bs = 256;
 	int X = 4;
 
 	// 2 metodos SoA y AoS
-    for (int i=0; i<2; i++){
+    for (int i=0; i<1; i++){
     	Read(&f_host, &M, &N, filename, X, i);
 
 	    gs = (int)ceil((float) M * N * X / bs);    
 	    cudaMalloc((void**)&f, M * N * X * sizeof(int));
+	    cudaMalloc((void**)&temp, M * N * X * sizeof(int));
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 	    
@@ -254,17 +249,17 @@ int main(int argc, char **argv){
 	    // Iteraciones de time step 
 	    for (int j=0; j<1; j++){
 	    	if (i == 0){
-	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
-	    	}
-	    	else{
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		// kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
-			//memory swap
-         	temp = f;
-          	f = f_out;
-          	f_out = temp;
+	    	else{
+	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
+	    	}
+	    	//memory swap
+			// temp = f;
+			// f = f_out;
+			// f_out = temp;
 	    }
 
 	    cudaEventRecord(ct2);
@@ -274,14 +269,12 @@ int main(int argc, char **argv){
 	    f_hostout = new int[M * N * X];
 	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    for (int j=0; j<1; j++){    
-	    	if (i == 0){
-	    		Write_AoS(f_hostout, M, N, "initial_f.txt\0");
-	    	}
-	    	else{
-	    		Write_SoA(f_hostout, M, N, "initial_f.txt\0");
-	    	}
-	    }
+	    if (i == 0){
+    		Write_SoA(f_hostout, M, N, "initial_f.txt\0");
+    	}
+    	else{
+    		Write_AoS(f_hostout, M, N, "initial_f.txt\0");
+    	}
 
 	    validar(f_hostout, N, M);
 
