@@ -292,7 +292,7 @@ int main(int argc, char **argv){
     		metodo = "AoS";
     	}
 
-	    std::cout << "Tiempo " << metodo << " GPU: " << dt << "[ms]" << std::endl;
+	    std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
 
 	    validar(f_hostout, N, M);
 
