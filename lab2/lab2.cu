@@ -11,7 +11,7 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
     int* f1 = new int[imsize];
     int Largo = (*M) * (*N);
 
-    if (tipo == 0){ // AoS
+    if (tipo != 0){ // AoS
 		for(int x=0; x<X; x++){
 			for(int i = 0; i < Largo; i++){
 	        	fscanf(fp, "%d ", &(f1[i*4 + x]));
@@ -36,12 +36,12 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 
 	} else{ // SoA 
 		for(int j=0; j<X; j++){
-	    	for(int i = 0; i < Largo-1; i++){
+	    	for(int i = 0; i < Largo; i++){
 		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
 		        printf("%d ", f1[i + j*Largo]);
 	    	}
-		    fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
-	    	printf("%d\n", f1[Largo-1 + j*Largo]);
+		    // fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
+	    	printf("\n");
 	    }
 	}
     fclose(fp);
@@ -74,11 +74,11 @@ void Write_SoA(int *f, int M, int N, const char *filename) {
     int Largo = M*N;
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
-	        fprintf(fp, "%d ", f[i]);
-	    	printf("%d ", f[i]);
+	        fprintf(fp, "%d ", f[i + j*Largo]);
+	    	printf("%d ", f[i + j*Largo]);
 	    }
-	    fprintf(fp, "%d\n", f[Largo-1]);
-	    printf("%d\n", f[Largo-1]);
+	    fprintf(fp, "%d\n", f[Largo-1 + j*Largo]);
+	    printf("%d\n", f[Largo-1 + j*Largo]);
     }
     printf("\n");
     fclose(fp);
@@ -199,19 +199,33 @@ __global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 					modulo(x-1,M) + y*M,
 					x + modulo(y-1,N)*M };
 		// Recorremos las direcciones
-		for(int i=0; i<4; i++){
+		for(int i=0; i<X; i++){
 			// Seteo todas en 0
-			f_out[tid+1*Largo] = 0;
+			f_out[tid+i*Largo] = 0;
 			// Si la particula se mueve en esta direccion
-			if(f[tid+1*Largo] == 1){
+			if(f[tid+i*Largo] == 1){
 				// La direccion del nodo de esa direccion cambia
-				f_out[nd[i]*4+i] += 1;
+				f_out[nd[i] + i*Largo] += 1;
 			}
 		}
-		// Copio todo en f denuevo
-		// for(int i=0; i<4; i++){
-		// 	f[tid+1*Largo] = f_out[tid+1*Largo];
-		// }
+	}
+}
+
+/*  Procesamiento GPU SoA Streaming */
+__global__ void kernel_copy(int *f, int *f_out, int tipo, int N, int M){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < N*M){
+		int Largo = N*M;
+		int id;
+		// Recorremos las direcciones
+		for(int i=0; i<4; i++){
+			if(tipo == 0){
+				id = tid+i*Largo;
+			} else{
+				id = tid*4 + i;
+			}
+			f[id] = f_out[id];
+		}
 	}
 }
 
@@ -231,15 +245,14 @@ int main(int argc, char **argv){
 	int X = 4;
 
 	// 2 metodos SoA y AoS
-    for (int i=0; i<1; i++){
+    for (int i=0; i<2; i++){
     	Read(&f_host, &M, &N, filename, X, i);
 
 	    gs = (int)ceil((float) M * N * X / bs);    
 	    cudaMalloc((void**)&f, M * N * X * sizeof(int));
-	    cudaMalloc((void**)&temp, M * N * X * sizeof(int));
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
-	    
+	    cudaMalloc((void**)&temp, M * N * X * sizeof(int));
     	validar(f_host, N, M);
 
 	    cudaEventCreate(&ct1);
@@ -247,17 +260,18 @@ int main(int argc, char **argv){
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step 
-	    for (int j=0; j<1; j++){
+	    for (int j=0; j<2; j++){
 	    	if (i == 0){
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		// kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    	else{
 	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	//memory swap
-			// temp = f;
+	    	kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
+			// temp = f; Me tiraba error por esto, pienso que es porque asignamos memoria de gpu en cpu
 			// f = f_out;
 			// f_out = temp;
 	    }
@@ -267,18 +281,19 @@ int main(int argc, char **argv){
 	    cudaEventElapsedTime(&dt, ct1, ct2);
 	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
 	    f_hostout = new int[M * N * X];
-	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
 	    if (i == 0){
-    		Write_SoA(f_hostout, M, N, "initial_f.txt\0");
+    		Write_SoA(f_hostout, M, N, "initial_S.txt\0");
     	}
     	else{
-    		Write_AoS(f_hostout, M, N, "initial_f.txt\0");
+    		Write_AoS(f_hostout, M, N, "initial_A.txt\0");
     	}
 
 	    validar(f_hostout, N, M);
 
     	cudaFree(f);
+    	cudaFree(temp);
     	cudaFree(f_out);
     	delete[] f_host;
     	delete[] f_hostout;
