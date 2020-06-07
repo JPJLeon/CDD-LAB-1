@@ -115,6 +115,16 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	}
 }
 
+//funcion auxiliar %, funciona con entradas negativas
+__device__ int modulo(int a, int b){
+    //a%b
+    if (a >= 0){
+        return a %b;
+    }
+    return b + a;
+}
+
+
 /*  Procesamiento GPU AoS Streaming */
 __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -132,10 +142,10 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 			borde = 1;
 		}
 		// Id de los nodos adyacentes
-		int nd[] = { (x+1)%M + (y+borde)*M, 
-					x + ((y+1)%N)*M, 
-					(x-1)%M + (y+borde)*M, 
-					x + ((y-1)%N)*M };
+		int nd[] = {modulo(x+1,M)  + y              *M, 
+					x              + modulo(y+1, N) *M, 
+					modulo(x-1, M) + y              *M, 
+					x              + modulo(y-1, N) *M };
 		// Recorremos las direcciones
 		for(int i=0; i<4; i++){
 			// Seteo todas en 0
@@ -145,10 +155,6 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int j, int N, int M){
 				// La direccion del nodo de esa direccion cambia
 				f_out[nd[i]*4+i] += 1;
 			}
-		}
-		// Copio todo en f denuevo
-		for(int i=0; i<4; i++){
-			f[idb+i] = f_out[idb+i];
 		}
 	}
 }
@@ -245,16 +251,20 @@ int main(int argc, char **argv){
 	    cudaEventCreate(&ct2);
 	    cudaEventRecord(ct1);
 
-	    // Iteraciones de time step
+	    // Iteraciones de time step 
 	    for (int j=0; j<1; j++){
 	    	if (i == 0){
 	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, j, N, M);
+	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	else{
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		// kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
+			//memory swap
+         	temp = f;
+          	f = f_out;
+          	f_out = temp;
 	    }
 
 	    cudaEventRecord(ct2);
@@ -262,10 +272,9 @@ int main(int argc, char **argv){
 	    cudaEventElapsedTime(&dt, ct1, ct2);
 	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
 	    f_hostout = new int[M * N * X];
-	    // cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    for (int j=0; j<1; j++){
+	    for (int j=0; j<1; j++){    
 	    	if (i == 0){
 	    		Write_AoS(f_hostout, M, N, "initial_f.txt\0");
 	    	}
