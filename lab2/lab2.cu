@@ -38,10 +38,10 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 		for(int j=0; j<X; j++){
 	    	for(int i = 0; i < Largo; i++){
 		        fscanf(fp, "%d ", &(f1[i + j*Largo]));
-		        printf("%d ", f1[i + j*Largo]);
+		        // printf("%d ", f1[i + j*Largo]);
 	    	}
 		    // fscanf(fp, "%d\n", &(f1[Largo-1 + j*Largo]));
-	    	printf("\n");
+	    	// printf("\n");
 	    }
 	}
     fclose(fp);
@@ -57,10 +57,10 @@ void Write_AoS(int *f, int M, int N, const char *filename) {
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
 	        fprintf(fp, "%d ", f[i*4 + j]);
-	    	printf("%d ", f[i*4 + j]);
+	    	// printf("%d ", f[i*4 + j]);
 	    }
 	    fprintf(fp, "%d\n", f[(Largo-1)*4 + j]);
-	    printf("%d\n", f[(Largo-1)*4 + j]);
+	    // printf("%d\n", f[(Largo-1)*4 + j]);
     }
     printf("\n");
     fclose(fp);
@@ -75,10 +75,10 @@ void Write_SoA(int *f, int M, int N, const char *filename) {
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
 	        fprintf(fp, "%d ", f[i + j*Largo]);
-	    	printf("%d ", f[i + j*Largo]);
+	    	// printf("%d ", f[i + j*Largo]);
 	    }
 	    fprintf(fp, "%d\n", f[Largo-1 + j*Largo]);
-	    printf("%d\n", f[Largo-1 + j*Largo]);
+	    // printf("%d\n", f[Largo-1 + j*Largo]);
     }
     printf("\n");
     fclose(fp);
@@ -238,6 +238,7 @@ int main(int argc, char **argv){
 	cudaEvent_t ct1, ct2;
 	float dt;
 	// N eje y, M eje x
+	const char *metodo;
 	int M, N;
     int *f_host, *f_hostout, *f, *f_out, *temp;
     char filename[15] = "initial.txt\0";
@@ -260,7 +261,7 @@ int main(int argc, char **argv){
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step 
-	    for (int j=0; j<2; j++){
+	    for (int j=0; j<1000; j++){
 	    	if (i == 0){
 	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
@@ -279,16 +280,19 @@ int main(int argc, char **argv){
 	    cudaEventRecord(ct2);
 	    cudaEventSynchronize(ct2);
 	    cudaEventElapsedTime(&dt, ct1, ct2);
-	    std::cout << "Tiempo GPU: " << dt << "[ms]" << std::endl;
 	    f_hostout = new int[M * N * X];
 	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
 	    if (i == 0){
     		Write_SoA(f_hostout, M, N, "initial_S.txt\0");
+    		metodo = "SoA";
     	}
     	else{
     		Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+    		metodo = "AoS";
     	}
+
+	    std::cout << "Tiempo " << metodo << " GPU: " << dt << "[ms]" << std::endl;
 
 	    validar(f_hostout, N, M);
 
