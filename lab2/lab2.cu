@@ -9,19 +9,16 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 
     int imsize = (*M) * (*N) * X;
     int* f1 = new int[imsize];
-    int Lres = (*M) * (*N) / X;
     int Largo = (*M) * (*N);
 
     if (tipo == 0){ // AoS
 		for(int x=0; x<X; x++){
 			for(int i = 0; i < Largo; i++){
 	        	fscanf(fp, "%d ", &(f1[i*4 + x]));
-		        printf("%d ", f1[i*4 + x]);
 		        // printf("%d ", i*4 + x);
 			}
-			printf("\n");
 	    }
-	    printf("\n");
+
 	    // Datos M = 6, N = 4
 
 	    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 											23
@@ -50,7 +47,7 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 }
 
 /*  Escritura de archivo initial con array */
-void Write(int *f, int Lres, int M, int N, const char *filename) {
+void Write(int *f, int M, int N, const char *filename) {
     FILE *fp;
     fp = fopen(filename, "w");
     fprintf(fp, "%d %d\n", N, M);
@@ -67,22 +64,57 @@ void Write(int *f, int Lres, int M, int N, const char *filename) {
 }
 
 /*  Procesamiento GPU AoS Coalisiones */
-__global__ void kernelAoS_col(int *f, int *f_out, int Lres, int X, int Largo){
+__global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < M*N){
+		int idb = tid*4;
+		int f0, f1, f2, f3;
+		f0 = f[idb];
+		f1 = f[idb+1];
+		f2 = f[idb+2];
+		f3 = f[idb+3];
+		if(f0 == 1 && f2 == 1 && f1 == 0 && f3 == 0){
+			f[idb] = 0;
+			f[idb+1] = 1;
+			f[idb+2] = 0;
+			f[idb+3] = 1;
+		} else if(f0 == 0 && f2 == 0 && f1 == 1 && f3 == 1){
+			f[idb] = 1;
+			f[idb+1] = 0;
+			f[idb+2] = 1;
+			f[idb+3] = 0;
+		}
+	}
 }
 
 /*  Procesamiento GPU AoS Streaming */
-__global__ void kernelAoS_stream(int *f, int *f_out, int Lres, int X, int Largo){
+__global__ void kernelAoS_stream(int *f, int *f_out, int X, int N, int M){
+	// Datos ejemplo
+	// N=4, M=6, tid=10
+	//  0  1  2  3  4  5
+	//  6  7  8  9 10 11
+	// 12 13 14 15 16 17
+	// 18 19 20 21 22 23
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < N*M){
+		int x, y;
+		x = tid % M; // 4
+		y = tid / M; // 1
+		int nd_arr[] = {x, (y-1) % N};
+		int nd_abj[] = {x, (y+1) % N};
+		int nd_izq[] = {(x-1) % M, y};
+		int nd_der[] = {(x+1) % M, y};
+		
+	}
 }
 
 /*  Procesamiento GPU SoA Coalisiones */
-__global__ void kernelSoA_col(int *f, int *f_out, int Lres, int X, int Largo){
+__global__ void kernelSoA_col(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 }
 
 /*  Procesamiento GPU SoA Streaming */
-__global__ void kernelSoA_stream(int *f, int *f_out, int Lres, int X, int Largo){
+__global__ void kernelSoA_stream(int *f, int *f_out, int X, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 }
 
@@ -100,20 +132,17 @@ int main(int argc, char **argv){
     char filename[15] = "initial.txt\0";
 	int gs, bs = 256;
 	int X = 4;
-	int Lres;
 
 	// Iteramos los 2 metodos SoA y AoS
     for (int i=0; i<1; i++){
     	Read(&f_host, &M, &N, filename, X, i);
-
-    	Lres = M*N/4;
 
 	    gs = (int)ceil((float) M * N * X / bs);    
 	    cudaMalloc((void**)&f, M * N * X * sizeof(int));
 	    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 	    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 	    
-    	Write(f_host, Lres, M, N, "initial_f.txt\0");
+    	Write(f_host, M, N, "initial_f.txt\0");
 
 	    cudaEventCreate(&ct1);
 	    cudaEventCreate(&ct2);
@@ -122,12 +151,12 @@ int main(int argc, char **argv){
 	    // Iteraciones de time step
 	    for (int j=0; j<0; j++){
 	    	if (i==0){
-	    		kernelAoS_col<<<gs, bs>>>(f, f_out, Lres, X, N*M);
-	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, Lres, X, N*M);
+	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    	else{
-	    		kernelSoA_col<<<gs, bs>>>(f, f_out, Lres, X, N*M);
-	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, Lres, X, N*M);
+	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    }
 
@@ -139,7 +168,7 @@ int main(int argc, char **argv){
 	    f_hostout = new int[M * N * X];
 	    cudaMemcpy(f_hostout, f_out, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	    // Write(f_hostout, Lres, M, N, "initial_f.txt\0");
+	    // Write(f_hostout, M, N, "initial_f.txt\0");
 
     	cudaFree(f);
     	cudaFree(f_out);
