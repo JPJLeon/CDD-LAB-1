@@ -72,11 +72,11 @@ void Write_SoA(int *f, int M, int N, const char *filename) {
     int Largo = M*N;
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
-	        fprintf(fp, "%d ", f[i + j*Largo]);
-	    	printf("%d ", f[i + j*Largo]);
+	        fprintf(fp, "%d ", f[i]);
+	    	printf("%d ", f[i]);
 	    }
-	    fprintf(fp, "%d\n", f[Largo-1 + j*Largo]);
-	    printf("%d\n", f[Largo-1 + j*Largo]);
+	    fprintf(fp, "%d\n", f[Largo-1]);
+	    printf("%d\n", f[Largo-1]);
     }
     printf("\n");
     fclose(fp);
