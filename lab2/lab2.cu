@@ -357,19 +357,6 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 		//operador booleano
 		else if (j == 2){
 			for(int i=0; i<4; i++){
-
-				// bool activo = (f[idb+i] == 1);
-				// bool der = (x == M-1 && i == 0);
-				// bool arr = (y == N-1 && i == 1);
-				// bool izq = (x == 0 && i == 2);
-				// bool abj = (y == 0 && i==3);
-
-				// f_out[nd[1] * 4 + 1]  = activo * abj; 
-				// f_out[nd[3] * 4 + 3] = activo * abs(abj-1) * arr;
-				// f_out[nd[0] *4 + 0]   = activo * abs(abj-1) * abs(arr-1) * izq; 
-				// f_out[nd[2] * 4 + 2]  = activo * abs(abj-1) * abs(arr-1) * abs(izq - 1) * der;
-				// f_out[nd[i]*4+i]      = activo * abs(abj-1) * abs(arr-1) * abs(izq - 1) * abs(der-1);
-
 				bool activo = (f[idb+i] == 1);
 				bool der = (x == M-1 && i == 0);
 				bool arr = (y == N-1 && i == 1);
@@ -387,10 +374,9 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 	}
 }
 
-
 //kernel pregunta 3
 //-----------------------------------------------------------
-__global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M){
+__global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M, int j){
 	//para cada nodo, se revisan las f entrantes por parte de los vecinos
 	//luego se hace la colision
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -400,123 +386,112 @@ __global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M){
 		x = tid % M; 
 		y = tid / M; 
 
-	int nd[] = {modulo(x+1,M)  + y*M, 
-				x              + modulo(y+1, N) *M, 
-				modulo(x-1, M) + y*M, 
-				x              + modulo(y-1, N) *M };
+		int nd[] = {modulo(x+1,M)  + y*M, 
+					x              + modulo(y+1, N) *M, 
+					modulo(x-1, M) + y*M, 
+					x              + modulo(y-1, N) *M };
 
-	//distancia al borde mas cercano
-	int distancia_x = (x < M -1 -x ? x : M - 1 -x);
-	int distancia_y = (y < N - 1 - y ? y : N-1 -y);
+		//distancia al borde mas cercano
+		int distancia_x = (x < M - 1 - x ? x : M - 1 -x);
+		int distancia_y = (y < N - 1 - y ? y : N - 1 -y);
 
-	int distancia_borde = (distancia_x < distancia_y ? distancia_x : distancia_y);
+		int distancia_borde = (distancia_x < distancia_y ? distancia_x : distancia_y);
 
-	for(int i=0; i<4; i++){
-		//para cada uno de los vecinos
-		if (distancia_borde > 1){
-			//no se aplican condiciones de borde
-			if (f[nd[i]*4 + (i+2)%4] == 1){
-				f_out[tid * 4 + (i+2)%4] = 1;
-			} 
-		}
-		else if (distancia_borde == 1){
-			//si esta a distancia de 1 de algun borde, debe consultar por las fuerzas reflejadas de los vecinos
-			if (x == 1){ //borde izquierdo
-				if (i == 2){
-					if (f[nd[i]*4 + (i+2)%4] == 1 || f[nd[i]*4 + i] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-				else{
-					if (f[nd[i]*4 + (i+2)%4] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-			}
-			else if (x == M-2){ //derecha
-				if (i == 0){
-					if (f[nd[i]*4 + (i+2)%4] == 1 || f[nd[i]*4 + i] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-				else{
-					if (f[nd[i]*4 + (i+2)%4] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-			}
-			else if (y == 1){ //abajo
-				if (i == 3){
-					if (f[nd[i]*4 + (i+2)%4] == 1 || f[nd[i]*4 + i] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-				else{
-					if (f[nd[i]*4 + (i+2)%4] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-			}
-			else if (y == N-2){ //arriba
-				if (i == 1){
-					if (f[nd[i]*4 + (i+2)%4] == 1 || f[nd[i]*4 + i] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-				else{
-					if (f[nd[i]*4 + (i+2)%4] == 1)
-						f_out[tid * 4 + (i+2)%4] = 1;
-				}
-			}
-		}
-		else if (distancia_borde == 0){
-			//solo tiene 3 vecinos
-			if (i == 0 && x != M-1){
-				if (f[nd[i]*4 + (i+2)%4] == 1)
+		for(int i=0; i<4; i++){
+			bool vecino_borde = (nd[i]%M == 0 || nd[i]%M == M-1 || nd[i]/M == 0 || nd[i]/M == N-1? true: false);
+
+			//para cada uno de los vecinos
+			if (distancia_borde >= 1){
+				//no se aplican condiciones de borde
+				if (f[nd[i]*4 + (i+2)%4] == 1){
 					f_out[tid * 4 + (i+2)%4] = 1;
-			}	
-			else if (i == 1 && y != N-1){
-				if (f[nd[i]*4 + (i+2)%4] == 1)
+				} else if(vecino_borde && f[nd[i]*4 + i%4] == 1){ // Si vecino esta en el borde puede reflejar
 					f_out[tid * 4 + (i+2)%4] = 1;
+				} else{
+					f_out[tid * 4 + (i+2)%4] = 0;
+				}
 			}
-			else if (i == 2 && x != 0){
-				if (f[nd[i]*4 + (i+2)%4] == 1)
-					f_out[tid * 4 + (i+2)%4] = 1;
-			}
-			else if (i== 3 && y != 0){
-				if (f[nd[i]*4 + (i+2)%4] == 1)
-					f_out[tid * 4 + (i+2)%4] = 1;
+			else if (distancia_borde == 0){
+				//solo tiene 3 o 2 vecinos
+				bool der = (x == M-1);
+				bool arr = (y == N-1);
+				bool izq = (x == 0);
+				bool abj = (y == 0);
+				if (f[nd[i]*4 + (i+2)%4] == 1 || (vecino_borde && f[nd[i]*4 + i%4] == 1)){ // Si vecino apunta al nodo
+				    if (abj && i != 3){ // Nodo en el borde de abajo
+				    	if(der && i != 0){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(izq && i != 2){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(!der && !izq){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	}
+				    } else if (arr && i != 1){
+				        if(der && i != 0){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(izq && i != 2){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(!der && !izq){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	}
+				    } else if (izq && i != 2){
+				        if(arr && i != 1){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(abj && i != 3){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(!abj && !arr){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	}
+				    } else if (der && i != 0){
+				        if(arr && i != 1){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(abj && i != 3){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	} else if(!abj && !arr){
+				    		f_out[tid*4 + (i+2)%4] = 1;
+				    	}
+				    }
+				} else {
+					f_out[tid*4 + (i+2)%4] = 0;
+				}
 			}
 		}
-	}
 
-	//manejar colisiones en el arreglo f_out
-	//----------------------------------------------------------
-	// Almacenamos los datos en memoria
-	f0 = f_out[idb+0];
-	f1 = f_out[idb+1];
-	f2 = f_out[idb+2];
-	f3 = f_out[idb+3];
+		//manejar colisiones en el arreglo f_out
+		//----------------------------------------------------------
+		// Almacenamos los datos en memoria
+		int f0, f1, f2, f3;
+		f0 = f_out[idb+0];
+		f1 = f_out[idb+1];
+		f2 = f_out[idb+2];
+		f3 = f_out[idb+3];
 
-	bool borde =  (x == 0 || x == M -1 || y == 0 || y == N-1) ;
-	bool horizontal = f0 && f2 && f1 == 0 && f3 == 0;
-	bool vertical = f0 == 0 && f2 == 0 && f1 && f3;
+		bool borde =  (x == 0 || x == M -1 || y == 0 || y == N-1);
+		bool horizontal = (f0 && f2 && f1 == 0 && f3 == 0);
+		bool vertical = (f0 == 0 && f2 == 0 && f1 && f3);
 
-	//if statement
-	if (j == 0){
-		if ( !borde ){ //si es que no se está en algun borde
-			if(horizontal){             
-				f_out[idb] = 0;
-				f_out[idb+1] = 1;
-				f_out[idb+2] = 0;
-				f_out[idb+3] = 1;
-			} else if(vertical){
-				f_out[idb] = 1;
-				f_out[idb+1] = 0;
-				f_out[idb+2] = 1;
-				f_out[idb+3] = 0;
+		//if statement
+		if (j == 0){
+			if ( !borde ){ //si es que no se está en algun borde
+				if(horizontal){             
+					f_out[idb] = 0;
+					f_out[idb+1] = 1;
+					f_out[idb+2] = 0;
+					f_out[idb+3] = 1;
+				} else if(vertical){
+					f_out[idb] = 1;
+					f_out[idb+1] = 0;
+					f_out[idb+2] = 1;
+					f_out[idb+3] = 0;
+				}
 			}
 		}
 	}
 }
+
 /*  Codigo Principal */
 int main(int argc, char **argv){
-    /*
-     *  Inicializacion
-     */
+
 	cudaEvent_t ct1, ct2;
 	float dt;
 	// N eje y, M eje x
@@ -591,58 +566,58 @@ int main(int argc, char **argv){
 	// Ejecucion pregunta 2
 	// metodo AoS con if, terciario y booleano
 	// Matriz con bordes
-	for (int i=0; i<3; i++){
-		Read(&f_host, &M, &N, filename, X, 1);
+	// for (int i=0; i<3; i++){
+	// 	Read(&f_host, &M, &N, filename, X, 1);
 
-		gs = (int)ceil((float) M * N * X / bs);    
-		cudaMalloc((void**)&f, M * N * X * sizeof(int));
-		cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
-		cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
-		// cudaMalloc((void**)&temp, M * N * X * sizeof(int));
-		validar(f_host, N, M, 0);
+	// 	gs = (int)ceil((float) M * N * X / bs);    
+	// 	cudaMalloc((void**)&f, M * N * X * sizeof(int));
+	// 	cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
+	// 	cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
+	// 	// cudaMalloc((void**)&temp, M * N * X * sizeof(int));
+	// 	validar(f_host, N, M, 0);
 
-		cudaEventCreate(&ct1);
-		cudaEventCreate(&ct2);
-		cudaEventRecord(ct1);
+	// 	cudaEventCreate(&ct1);
+	// 	cudaEventCreate(&ct2);
+	// 	cudaEventRecord(ct1);
 
-		// Iteraciones de time step 
-		for (int j=0; j<1000; j++){
-        	f_out_0<<<gs, bs>>>(f_out, N, M);
-	    	kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, i);
-			kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, i);
-	    	//memory swap
-			temp = f;
-			f = f_out;
-			f_out = temp;
-	    }
+	// 	// Iteraciones de time step 
+	// 	for (int j=0; j<1000; j++){
+ //        	f_out_0<<<gs, bs>>>(f_out, N, M);
+	//     	kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, i);
+	// 		kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, i);
+	//     	//memory swap
+	// 		temp = f;
+	// 		f = f_out;
+	// 		f_out = temp;
+	//     }
 		 
-		cudaEventRecord(ct2);
-		cudaEventSynchronize(ct2);
-		cudaEventElapsedTime(&dt, ct1, ct2);
-		f_hostout = new int[M * N * X];
-		cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+	// 	cudaEventRecord(ct2);
+	// 	cudaEventSynchronize(ct2);
+	// 	cudaEventElapsedTime(&dt, ct1, ct2);
+	// 	f_hostout = new int[M * N * X];
+	// 	cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-		// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+	// 	// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
 
-	    if (i == 0){
-	    	metodo = "IF ";
-	    }
-	    else if (i == 1){
-	    	metodo = "TERNARIO ";
-	    } 
-	    else if (i == 2) {
-			metodo = "BOOLEANO ";
-	    }
+	//     if (i == 0){
+	//     	metodo = "IF ";
+	//     }
+	//     else if (i == 1){
+	//     	metodo = "TERNARIO ";
+	//     } 
+	//     else if (i == 2) {
+	// 		metodo = "BOOLEANO ";
+	//     }
 
-		std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
-		validar(f_hostout, N, M, 1);
+	// 	std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
+	// 	validar(f_hostout, N, M, 1);
 
-		cudaFree(f);
-		cudaFree(temp);
-		cudaFree(f_out);
-		delete[] f_host;
-		delete[] f_hostout;
-	}
+	// 	cudaFree(f);
+	// 	cudaFree(temp);
+	// 	cudaFree(f_out);
+	// 	delete[] f_host;
+	// 	delete[] f_hostout;
+	// }
 
   	// Ejecucion pregunta 3
 	//-----------------------------------------------------------------------
@@ -661,10 +636,11 @@ int main(int argc, char **argv){
 	cudaEventCreate(&ct2);
 	cudaEventRecord(ct1);
 
+	kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
 	// Iteraciones de time step 
-	for (int j=0; j<1000; j++){
+	for (int j=0; j<1; j++){
 		f_out_0<<<gs, bs>>>(f_out, N, M);
-		kernelAoS_stream_col_borde<<<gs, bs>>>(f, f_out, X, N, M);
+		kernelAoS_stream_col_borde<<<gs, bs>>>(f, f_out, N, M, 0);
 		//memory swap
 		temp = f;
 		f = f_out;
@@ -677,7 +653,7 @@ int main(int argc, char **argv){
 	f_hostout = new int[M * N * X];
 	cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	//Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+	Write_AoS(f_hostout, M, N, "initial_A.txt\0");
 
 
 	std::cout << "Tiempo AoS con bordes y operador if en un solo kernel: " <<  dt << "[ms]" << std::endl;
