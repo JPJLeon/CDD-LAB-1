@@ -61,7 +61,7 @@ void Write_AoS(int *f, int M, int N, const char *filename) {
 	    fprintf(fp, "%d\n", f[(Largo-1)*4 + j]);
 	    printf("%d\n", f[(Largo-1)*4 + j]);
     }
-    printf("\n");
+    //printf("\n");
     fclose(fp);
 }
 
@@ -79,16 +79,22 @@ void Write_SoA(int *f, int M, int N, const char *filename) {
 	    fprintf(fp, "%d\n", f[Largo-1 + j*Largo]);
 	    // printf("%d\n", f[Largo-1 + j*Largo]);
     }
-    printf("\n");
+    //printf("\n");
     fclose(fp);
 }
 
-void validar(int *f, int N, int M){
+void validar(int *f, int N, int M, int i){
 	int suma=0;
 	for(int i=0; i<N*M*4; i++){
 		suma += f[i];
-	}
-	printf("Particulas: %d\n", suma);
+  }
+  if (i == 0){
+    printf("Cantidad inicial de particulas: %d\n", suma);
+  } else if (i == 1){
+    printf("Cantidad final de particulas: %d\n", suma);
+    printf("\n");
+  }
+	
 }
 
 //funcion auxiliar %, funciona con entradas negativas
@@ -387,6 +393,7 @@ int main(int argc, char **argv){
 	int gs, bs = 256;
 	int X = 4;
 
+  	// Ejecucion pregunta 1
 	// 2 metodos SoA y AoS
     for (int i=0; i<2; i++){
     	if(i==0){
@@ -409,45 +416,108 @@ int main(int argc, char **argv){
 	    for (int j=0; j<1; j++){
         	f_out_0<<<gs, bs>>>(f_out, N, M);
 	    	if (i == 0){
-	    		//kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		//kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    	else{
-	    		kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, 2);
-	    		// kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, 2);
-	    		// kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		// kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
+	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	//memory swap
-			// temp = f;
-			// f = f_out;
-			// f_out = temp;
+			temp = f;
+			f = f_out;
+			f_out = temp;
 	    }
       
-	    cudaEventRecord(ct2);
-	    cudaEventSynchronize(ct2);
-	    cudaEventElapsedTime(&dt, ct1, ct2);
-	    f_hostout = new int[M * N * X];
-	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+		cudaEventRecord(ct2);
+		cudaEventSynchronize(ct2);
+		cudaEventElapsedTime(&dt, ct1, ct2);
+		f_hostout = new int[M * N * X];
+		cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+
+		if (i == 0){
+			Write_SoA(f_hostout, M, N, "initial_S.txt\0");
+			metodo = "SoA";
+		}
+		else{
+			Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+			metodo = "AoS";
+		}
+
+		std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
+		validar(f_hostout, N, M, 1);
+
+	    cudaFree(f);
+	    cudaFree(temp);
+	    cudaFree(f_out);
+	    delete[] f_host;
+	    delete[] f_hostout;
+	}
+  
+	// Ejecucion pregunta 2
+	// metodo AoS con if, terciario y booleano
+	// Matriz con bordes
+	for (int i=0; i<3; i++){
+		// if(i != 2){
+		// 	continue;
+		// }
+		Read(&f_host, &M, &N, filename, X, 0);
+
+		gs = (int)ceil((float) M * N * X / bs);    
+		cudaMalloc((void**)&f, M * N * X * sizeof(int));
+		cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
+		cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
+		cudaMalloc((void**)&temp, M * N * X * sizeof(int));
+		validar(f_host, N, M, 0);
+
+		cudaEventCreate(&ct1);
+		cudaEventCreate(&ct2);
+		cudaEventRecord(ct1);
+
+		// Iteraciones de time step 
+		for (int j=0; j<1; j++){
+        	f_out_0<<<gs, bs>>>(f_out, N, M);
+	    	kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, i);
+			kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, i);
+	    	//memory swap
+			temp = f;
+			f = f_out;
+			f_out = temp;
+	    }
+
+		//memory swap
+		temp = f;
+		f = f_out;
+		f_out = temp;
+		cudaDeviceSynchronize();
+		 
+		cudaEventRecord(ct2);
+		cudaEventSynchronize(ct2);
+		cudaEventElapsedTime(&dt, ct1, ct2);
+		f_hostout = new int[M * N * X];
+		cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
 	    if (i == 0){
-    		//Write_SoA(f_hostout, M, N, "initial_S.txt\0");
-    		metodo = "SoA";
-    	}
-    	else{
-    		Write_AoS(f_hostout, M, N, "initial_A.txt\0");
-    		metodo = "AoS";
-    	}
+	    	metodo = "IF ";
+	    }
+	    else if (i == 1){
+	    	metodo = "TERNARIO ";
+	    } 
+	    else if (i == 2) {
+			metodo = "BOOLEANO ";
+	    }
 
-	    std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
+		std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
+		validar(f_hostout, N, M, 1);
 
-	    validar(f_hostout, N, M);
-
-    	cudaFree(f);
-    	cudaFree(temp);
-    	cudaFree(f_out);
-    	delete[] f_host;
-    	delete[] f_hostout;
+		cudaFree(f);
+		cudaFree(temp);
+		cudaFree(f_out);
+		delete[] f_host;
+		delete[] f_hostout;
 	}
+
+  	// Ejecucion pregunta 3
+
 	return 0;
 }
