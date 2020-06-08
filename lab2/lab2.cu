@@ -1,4 +1,5 @@
-#include <iostream>
+%%cu
+  #include <iostream>
 #include <cuda_runtime.h>
 
 /*  Lectura Archivo */
@@ -306,7 +307,7 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
     if (j == 0){
       for(int i=0; i<4; i++){
         // Seteo todas en 0
-        f_out[idb+i] = 0;
+        //f_out[idb+i] = 0;
 
         //condiciones de borde
         bool sur = (y == 0 && i==3);
@@ -338,7 +339,7 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
     else if(j == 1){
       for(int i=0; i<4; i++){
         // Seteo todas en 0
-        f_out[idb+i] = 0;
+        //f_out[idb+i] = 0;
 
         bool sur = (y == 0 && i==3);
         bool norte = (y == N-1 && i == 1);
@@ -358,7 +359,7 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
       else if (j == 2){
         for(int i=0; i<4; i++){
           // Seteo todas en 0
-          f_out[idb+i] = 0;
+          //f_out[idb+i] = 0;
 
           bool activo = (f[idb+i] == 1);
           bool sur = (y == 0 && i==3);
@@ -387,7 +388,7 @@ int main(int argc, char **argv){
 	const char *metodo;
 	int M, N;
     int *f_host, *f_hostout, *f, *f_out, *temp;
-    char filename[15] = "initial.txt\0";
+    char filename[15] = "initial_A.txt\0";
 	int gs, bs = 256;
 	int X = 4;
 
@@ -407,15 +408,15 @@ int main(int argc, char **argv){
 	    cudaEventRecord(ct1);
 
 	    // Iteraciones de time step 
-	    for (int j=0; j<1000; j++){
+	    for (int j=0; j<1; j++){
         f_out_0<<<gs, bs>>>(f_out, N, M);
 	    	if (i == 0){
-	    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
+	    		//kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		//kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
 	    	}
 	    	else{
-	    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
+	    		kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, 2);
+	    		kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, 2);
 	    	}
 	    	//memory swap
 	    	//kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
@@ -433,7 +434,7 @@ int main(int argc, char **argv){
 	    cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
 	    if (i == 0){
-    		Write_SoA(f_hostout, M, N, "initial_S.txt\0");
+    		//Write_SoA(f_hostout, M, N, "initial_S.txt\0");
     		metodo = "SoA";
     	}
     	else{
