@@ -56,10 +56,10 @@ void Write_AoS(int *f, int M, int N, const char *filename) {
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
 	        fprintf(fp, "%d ", f[i*4 + j]);
-	    	printf("%d ", f[i*4 + j]);
+	    	// printf("%d ", f[i*4 + j]);
 	    }
 	    fprintf(fp, "%d\n", f[(Largo-1)*4 + j]);
-	    printf("%d\n", f[(Largo-1)*4 + j]);
+	    // printf("%d\n", f[(Largo-1)*4 + j]);
     }
     //printf("\n");
     fclose(fp);
@@ -638,7 +638,7 @@ int main(int argc, char **argv){
 
 	kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
 	// Iteraciones de time step 
-	for (int j=0; j<1; j++){
+	for (int j=0; j<1000; j++){
 		f_out_0<<<gs, bs>>>(f_out, N, M);
 		kernelAoS_stream_col_borde<<<gs, bs>>>(f, f_out, N, M, 0);
 		//memory swap
