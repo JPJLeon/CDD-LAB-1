@@ -1,5 +1,4 @@
-%%cu
-  #include <iostream>
+#include <iostream>
 #include <cuda_runtime.h>
 
 /*  Lectura Archivo */
@@ -126,7 +125,6 @@ __global__ void kernelAoS_col(int *f, int *f_out, int X, int N, int M){
 	}
 }
 
-
 /*  Procesamiento GPU AoS Streaming */
 __global__ void kernelAoS_stream(int *f, int *f_out, int N, int M){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -156,7 +154,6 @@ __global__ void kernelAoS_stream(int *f, int *f_out, int N, int M){
 		}
 	}
 }
-
 
 /*  Procesamiento GPU SoA Coalisiones */
 __global__ void kernelSoA_col(int *f, int *f_out, int X, int N, int M){
@@ -244,19 +241,19 @@ __global__ void kernelAoS_col_borde(int *f, int *f_out, int X, int N, int M, int
 
 	    //if statement
 	    if (j == 0){
-	      if ( !borde ){ //si es que no se está en algun borde
-	        if(horizontal){
-	          f[idb] = 0;
-	          f[idb+1] = 1;
-	          f[idb+2] = 0;
-	          f[idb+3] = 1;
-	        } else if(vertical){
-	          f[idb] = 1;
-	          f[idb+1] = 0;
-	          f[idb+2] = 1;
-	          f[idb+3] = 0;
-	        }
-	      }
+			if ( !borde ){ //si es que no se está en algun borde
+				if(horizontal){
+					f[idb] = 0;
+					f[idb+1] = 1;
+					f[idb+2] = 0;
+					f[idb+3] = 1;
+				} else if(vertical){
+					f[idb] = 1;
+					f[idb+1] = 0;
+					f[idb+2] = 1;
+					f[idb+3] = 0;
+				}
+	      	}
 	    }
 
 	    //operador ternario
@@ -303,74 +300,73 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 
 		// if statement
 	    if (j == 0){
-	      for(int i=0; i<4; i++){
-	        // Seteo todas en 0
-	        //f_out[idb+i] = 0;
+			for(int i=0; i<4; i++){
+				// Seteo todas en 0
+				//f_out[idb+i] = 0;
 
-	        //condiciones de borde
-	        bool sur = (y == 0 && i==3);
-	        bool norte = (y == N-1 && i == 1);
-	        bool oeste = (x == 0 && i == 2);
-	        bool este = (x == M-1 && i == 0);
-	        // Si la particula se mueve en esta direccion
-	        if(f[idb+i] == 1){                               //si fi == 0
-	            if (sur){                         //si se mueve hacia abajo en el borde inferior
-	                f_out[nd[1] * 4 + 1] = 1;                //rebota hacia arriba 
-	            }
-	            else if (norte){
-	                f_out[nd[3] * 4 + 3] = 1;
-	            }
-	            else if (oeste){
-	                f_out[nd[0] *4 + 0] = 1;
-	            } 
-	            else if (este){
-	                f_out[nd[2] * 4 + 2] = 1;
-	            }
-	            else{
-	                f_out[nd[i]*4+i] = 1;      
-	            }
-	        }
-	      }
+				//condiciones de borde
+				bool sur = (y == 0 && i==3);
+				bool norte = (y == N-1 && i == 1);
+				bool oeste = (x == 0 && i == 2);
+				bool este = (x == M-1 && i == 0);
+				// Si la particula se mueve en esta direccion
+				if(f[idb+i] == 1){                               //si fi == 0
+				    if (sur){                         //si se mueve hacia abajo en el borde inferior
+				        f_out[nd[1] * 4 + 1] = 1;                //rebota hacia arriba 
+				    }
+				    else if (norte){
+				        f_out[nd[3] * 4 + 3] = 1;
+				    }
+				    else if (oeste){
+				        f_out[nd[0] *4 + 0] = 1;
+				    } 
+				    else if (este){
+				        f_out[nd[2] * 4 + 2] = 1;
+				    }
+				    else{
+				        f_out[nd[i]*4+i] = 1;      
+				    }
+				}
+			}
 	    }
 
 	    //operador ternario
 	    else if(j == 1){
-	      for(int i=0; i<4; i++){
-	        // Seteo todas en 0
-	        //f_out[idb+i] = 0;
+			for(int i=0; i<4; i++){
+				// Seteo todas en 0
+				//f_out[idb+i] = 0;
 
-	        bool sur = (y == 0 && i==3);
-	        bool norte = (y == N-1 && i == 1);
-	        bool oeste = (x == 0 && i == 2);
-	        bool este = (x == M-1 && i == 0);
-	        
-	        !(f[idb+i] == 1) ? true : 
-	            (sur) ?  f_out[nd[1] * 4 + 1] = 1 :
-	              (norte) ? f_out[nd[3] * 4 + 3] = 1:
-	                (oeste) ? f_out[nd[0] *4 + 0] = 1 : 
-	                  (este) ? f_out[nd[2] * 4 + 2] = 1 : f_out[nd[i]*4+i] = 1;
-	       
-	        }
-	      }
+				bool sur = (y == 0 && i==3);
+				bool norte = (y == N-1 && i == 1);
+				bool oeste = (x == 0 && i == 2);
+				bool este = (x == M-1 && i == 0);
 
-	      //operador booleano
-	      else if (j == 2){
-	        for(int i=0; i<4; i++){
-	          // Seteo todas en 0
-	          //f_out[idb+i] = 0;
+				!(f[idb+i] == 1) ? true : 
+				    (sur) ?  f_out[nd[1] * 4 + 1] = 1 :
+				      (norte) ? f_out[nd[3] * 4 + 3] = 1:
+				        (oeste) ? f_out[nd[0] *4 + 0] = 1 : 
+				          (este) ? f_out[nd[2] * 4 + 2] = 1 : f_out[nd[i]*4+i] = 1;
+			}
+		}
 
-	          bool activo = (f[idb+i] == 1);
-	          bool sur = (y == 0 && i==3);
-	          bool norte = (y == N-1 && i == 1);
-	          bool oeste = (x == 0 && i == 2);
-	          bool este = (x == M-1 && i == 0);
+		//operador booleano
+		else if (j == 2){
+			for(int i=0; i<4; i++){
+				// Seteo todas en 0
+				//f_out[idb+i] = 0;
 
-	          f_out[nd[1] * 4 + 1]  = activo * sur; 
-	          f_out[nd[3] * 4 + 3] = activo * abs(sur-1) * norte;
-	          f_out[nd[0] *4 + 0]   = activo * abs(sur-1) * abs(norte-1) * oeste; 
-	          f_out[nd[2] * 4 + 2]  = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * este;
-	          f_out[nd[i]*4+i]      = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * abs(este-1);
-	      }
+				bool activo = (f[idb+i] == 1);
+				bool sur = (y == 0 && i==3);
+				bool norte = (y == N-1 && i == 1);
+				bool oeste = (x == 0 && i == 2);
+				bool este = (x == M-1 && i == 0);
+
+				f_out[nd[1] * 4 + 1]  = activo * sur; 
+				f_out[nd[3] * 4 + 3] = activo * abs(sur-1) * norte;
+				f_out[nd[0] *4 + 0]   = activo * abs(sur-1) * abs(norte-1) * oeste; 
+				f_out[nd[2] * 4 + 2]  = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * este;
+				f_out[nd[i]*4+i]      = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * abs(este-1);
+			}
 	    }
 	}
 }
@@ -392,6 +388,9 @@ int main(int argc, char **argv){
 
 	// 2 metodos SoA y AoS
     for (int i=0; i<2; i++){
+    	if(i==0){
+    		continue;
+    	}
     	Read(&f_host, &M, &N, filename, X, i);
 
 	    gs = (int)ceil((float) M * N * X / bs);    
@@ -415,6 +414,8 @@ int main(int argc, char **argv){
 	    	else{
 	    		kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, 2);
 	    		kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, 2);
+	    		// kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+	    		// kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	//memory swap
 	    	//kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
