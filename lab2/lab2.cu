@@ -56,10 +56,10 @@ void Write_AoS(int *f, int M, int N, const char *filename) {
     for(int j=0; j<4; j++){
     	for(int i = 0; i < Largo-1; i++){
 	        fprintf(fp, "%d ", f[i*4 + j]);
-	    	// printf("%d ", f[i*4 + j]);
+	    	printf("%d ", f[i*4 + j]);
 	    }
 	    fprintf(fp, "%d\n", f[(Largo-1)*4 + j]);
-	    // printf("%d\n", f[(Largo-1)*4 + j]);
+	    printf("%d\n", f[(Largo-1)*4 + j]);
     }
     printf("\n");
     fclose(fp);
@@ -225,16 +225,16 @@ __global__ void kernelAoS_col_borde(int *f, int *f_out, int X, int N, int M, int
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if(tid < M*N){
 		int idb = tid*4;
-		int f0, f1, f2, f3, x ,y;
+		int f0, f1, f2, f3, x, y;
 	    x = tid % M; 
-			y = tid / M; 
+		y = tid / M; 
 
 	    // Almacenamos los datos en memoria
 	    f0 = f[idb+0];
 	    f1 = f[idb+1];
 	    f2 = f[idb+2];
 	    f3 = f[idb+3];
-
+ 
 	    bool borde =  (x == 0 || x == M -1 || y == 0 || y == N-1) ;
 	    bool horizontal = f0 && f2 && f1 == 0 && f3 == 0;
 	    bool vertical = f0 == 0 && f2 == 0 && f1 && f3;
@@ -275,14 +275,13 @@ __global__ void kernelAoS_col_borde(int *f, int *f_out, int X, int N, int M, int
 
 	    //operador booleano
 	    else if (j == 2){
-	        f[idb] =  (borde) * f[idb]  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb]));
+	        f[idb] 	  =  (borde) * f[idb]  	  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb]));
 	        f[idb+ 1] =  (borde) * f[idb+ 1]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 1]));
 	        f[idb+ 2] =  (borde) * f[idb+ 2]  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb+ 2]));
 	        f[idb+ 3] =  (borde) * f[idb+ 3]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 3]));
 	    }
 	}
 }
-
 
 /*  Procesamiento GPU AoS Streaming */
 __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
@@ -301,26 +300,28 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 		// if statement
 	    if (j == 0){
 			for(int i=0; i<4; i++){
-				// Seteo todas en 0
-				//f_out[idb+i] = 0;
+				// f0: der
+				// f1: arr
+				// f2: izq
+				// f3: abj
 
 				//condiciones de borde
-				bool sur = (y == 0 && i==3);
-				bool norte = (y == N-1 && i == 1);
-				bool oeste = (x == 0 && i == 2);
-				bool este = (x == M-1 && i == 0);
+				bool der = (x == M-1 && i == 0);
+				bool arr = (y == N-1 && i == 1);
+				bool izq = (x == 0 && i == 2);
+				bool abj = (y == 0 && i==3);
 				// Si la particula se mueve en esta direccion
 				if(f[idb+i] == 1){                               //si fi == 0
-				    if (sur){                         //si se mueve hacia abajo en el borde inferior
+				    if (abj){                         			 //si se mueve hacia abajo en el borde inferior
 				        f_out[nd[1] * 4 + 1] = 1;                //rebota hacia arriba 
 				    }
-				    else if (norte){
+				    else if (arr){
 				        f_out[nd[3] * 4 + 3] = 1;
 				    }
-				    else if (oeste){
+				    else if (der){
 				        f_out[nd[0] *4 + 0] = 1;
 				    } 
-				    else if (este){
+				    else if (izq){
 				        f_out[nd[2] * 4 + 2] = 1;
 				    }
 				    else{
@@ -336,16 +337,16 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 				// Seteo todas en 0
 				//f_out[idb+i] = 0;
 
-				bool sur = (y == 0 && i==3);
-				bool norte = (y == N-1 && i == 1);
-				bool oeste = (x == 0 && i == 2);
-				bool este = (x == M-1 && i == 0);
+				bool der = (x == M-1 && i == 0);
+				bool arr = (y == N-1 && i == 1);
+				bool izq = (x == 0 && i == 2);
+				bool abj = (y == 0 && i==3);
 
 				!(f[idb+i] == 1) ? true : 
-				    (sur) ?  f_out[nd[1] * 4 + 1] = 1 :
-				      (norte) ? f_out[nd[3] * 4 + 3] = 1:
-				        (oeste) ? f_out[nd[0] *4 + 0] = 1 : 
-				          (este) ? f_out[nd[2] * 4 + 2] = 1 : f_out[nd[i]*4+i] = 1;
+				    (abj) ?  f_out[nd[1] * 4 + 1] = 1 :
+				      	(arr) ? f_out[nd[3] * 4 + 3] = 1:
+				        	(der) ? f_out[nd[0] *4 + 0] = 1 : 
+				          		(izq) ? f_out[nd[2] * 4 + 2] = 1 : f_out[nd[i]*4+i] = 1;
 			}
 		}
 
@@ -356,16 +357,16 @@ __global__ void kernelAoS_stream_borde(int *f, int *f_out, int N, int M, int j){
 				//f_out[idb+i] = 0;
 
 				bool activo = (f[idb+i] == 1);
-				bool sur = (y == 0 && i==3);
-				bool norte = (y == N-1 && i == 1);
-				bool oeste = (x == 0 && i == 2);
-				bool este = (x == M-1 && i == 0);
+				bool der = (x == M-1 && i == 0);
+				bool arr = (y == N-1 && i == 1);
+				bool izq = (x == 0 && i == 2);
+				bool abj = (y == 0 && i==3);
 
-				f_out[nd[1] * 4 + 1]  = activo * sur; 
-				f_out[nd[3] * 4 + 3] = activo * abs(sur-1) * norte;
-				f_out[nd[0] *4 + 0]   = activo * abs(sur-1) * abs(norte-1) * oeste; 
-				f_out[nd[2] * 4 + 2]  = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * este;
-				f_out[nd[i]*4+i]      = activo * abs(sur-1) * abs(norte-1) * abs(oeste -1) * abs(este-1);
+				f_out[nd[1] * 4 + 1]  = activo * abj; 
+				f_out[nd[3] * 4 + 3] = activo * abs(abj-1) * arr;
+				f_out[nd[0] *4 + 0]   = activo * abs(abj-1) * abs(arr-1) * der; 
+				f_out[nd[2] * 4 + 2]  = activo * abs(abj-1) * abs(arr-1) * abs(der - 1) * izq;
+				f_out[nd[i]*4+i]      = activo * abs(abj-1) * abs(arr-1) * abs(der - 1) * abs(izq-1);
 			}
 	    }
 	}
@@ -382,7 +383,7 @@ int main(int argc, char **argv){
 	const char *metodo;
 	int M, N;
     int *f_host, *f_hostout, *f, *f_out, *temp;
-    char filename[15] = "initial_A.txt\0";
+    char filename[15] = "initial.txt\0";
 	int gs, bs = 256;
 	int X = 4;
 
@@ -413,15 +414,14 @@ int main(int argc, char **argv){
 	    	}
 	    	else{
 	    		kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, 2);
-	    		kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, 2);
+	    		// kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, 2);
 	    		// kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
 	    		// kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
 	    	}
 	    	//memory swap
-	    	//kernel_copy<<<gs, bs>>>(f, f_out, i, N, M);
-			temp = f;
-			f = f_out;
-			f_out = temp;
+			// temp = f;
+			// f = f_out;
+			// f_out = temp;
 	    }
       
 	    cudaEventRecord(ct2);
