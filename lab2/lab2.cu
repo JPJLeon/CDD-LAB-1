@@ -419,30 +419,14 @@ __global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M, int
 				bool abj = (y == 0);
 				if (f[nd[i]*4 + (i+2)%4] == 1 || (vecino_borde && f[nd[i]*4 + i%4] == 1)){ // Si vecino apunta al nodo
 				    if (abj && i != 3){ // Nodo en el borde de abajo
-				    	if(der && i != 0){
+				    	if((der && i != 0) || (arr && i != 1)){
 				    		f_out[tid*4 + (i+2)%4] = 1;
 				    	} else if(izq && i != 2){
 				    		f_out[tid*4 + (i+2)%4] = 1;
 				    	} else if(!der && !izq){
 				    		f_out[tid*4 + (i+2)%4] = 1;
 				    	}
-				    } else if (arr && i != 1){
-				        if(der && i != 0){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	} else if(izq && i != 2){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	} else if(!der && !izq){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	}
-				    } else if (izq && i != 2){
-				        if(arr && i != 1){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	} else if(abj && i != 3){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	} else if(!abj && !arr){
-				    		f_out[tid*4 + (i+2)%4] = 1;
-				    	}
-				    } else if (der && i != 0){
+				    } else if ((izq && i != 2) || (der && i != 0)){
 				        if(arr && i != 1){
 				    		f_out[tid*4 + (i+2)%4] = 1;
 				    	} else if(abj && i != 3){
@@ -498,172 +482,175 @@ int main(int argc, char **argv){
 	const char *metodo;
 	int M, N;
     int *f_host, *f_hostout, *f, *f_out, *temp;
+    int iteraciones[] = {100, 300, 500, 1000};
     char filename[15] = "initial.txt\0";
 	int gs, bs = 256;
 	int X = 4;
+	for(int iteracion = 0; iteracion<4; iteracion++){
+		std::cout << "Archivo 2000x2000 con " << iteraciones[iteracion] << " iteraciones." << std::endl;
 
-  	// Ejecucion pregunta 1
-	// 2 metodos SoA y AoS
- //    for (int i=0; i<2; i++){
- //    	if(i==0){
- //    		continue;
- //    	}
- //    	Read(&f_host, &M, &N, filename, X, i);
+		// Ejecucion pregunta 1
+		// 2 metodos SoA y AoS
+	    for (int i=0; i<2; i++){
+	    	Read(&f_host, &M, &N, filename, X, i);
 
-	//     gs = (int)ceil((float) M * N * X / bs);    
-	//     cudaMalloc((void**)&f, M * N * X * sizeof(int));
-	//     cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
-	//     cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
-	//     cudaMalloc((void**)&temp, M * N * X * sizeof(int));
- //    	validar(f_host, N, M);
+		    gs = (int)ceil((float) M * N * X / bs);    
+		    cudaMalloc((void**)&f, M * N * X * sizeof(int));
+		    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
+		    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
+		    cudaMalloc((void**)&temp, M * N * X * sizeof(int));
+	    	//validar(f_host, N, M, 0);
 
-	//     cudaEventCreate(&ct1);
-	//     cudaEventCreate(&ct2);
-	//     cudaEventRecord(ct1);
+		    cudaEventCreate(&ct1);
+		    cudaEventCreate(&ct2);
+		    cudaEventRecord(ct1);
 
-	//     // Iteraciones de time step 
-	//     for (int j=0; j<1; j++){
- //        	f_out_0<<<gs, bs>>>(f_out, N, M);
-	//     	if (i == 0){
-	//     		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
-	//     		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
-	//     	}
-	//     	else{
-	//     		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	//     		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
-	//     	}
-	//     	//memory swap
-	// 		temp = f;
-	// 		f = f_out;
-	// 		f_out = temp;
-	//     }
-      
-	// 	cudaEventRecord(ct2);
-	// 	cudaEventSynchronize(ct2);
-	// 	cudaEventElapsedTime(&dt, ct1, ct2);
-	// 	f_hostout = new int[M * N * X];
-	// 	cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+		    // Iteraciones de time step 
+		    for (int j=0; j<iteraciones[iteracion]; j++){
+	        	f_out_0<<<gs, bs>>>(f_out, N, M);
+		    	if (i == 0){
+		    		kernelSoA_col<<<gs, bs>>>(f, f_out, X, N, M);
+		    		kernelSoA_stream<<<gs, bs>>>(f, f_out, X, N, M);
+		    	}
+		    	else{
+		    		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+		    		kernelAoS_stream<<<gs, bs>>>(f, f_out, N, M);
+		    	}
+		    	//memory swap
+				temp = f;
+				f = f_out;
+				f_out = temp;
+		    }
+	      
+			cudaEventRecord(ct2);
+			cudaEventSynchronize(ct2);
+			cudaEventElapsedTime(&dt, ct1, ct2);
+			f_hostout = new int[M * N * X];
+			cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	// 	if (i == 0){
-	// 		Write_SoA(f_hostout, M, N, "initial_S.txt\0");
-	// 		metodo = "SoA";
-	// 	}
-	// 	else{
-	// 		Write_AoS(f_hostout, M, N, "initial_A.txt\0");
-	// 		metodo = "AoS";
-	// 	}
+			if (i == 0){
+				// Write_SoA(f_hostout, M, N, "initial_S.txt\0");
+				metodo = "SoA";
+			}
+			else{
+				// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+				metodo = "AoS";
+			}
 
-	// 	std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
-	// 	validar(f_hostout, N, M, 1);
+			std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
+			// validar(f_hostout, N, M, 1);
 
-	//     cudaFree(f);
-	//     cudaFree(temp);
-	//     cudaFree(f_out);
-	//     delete[] f_host;
-	//     delete[] f_hostout;
-	// }
-  
-	// Ejecucion pregunta 2
-	// metodo AoS con if, terciario y booleano
-	// Matriz con bordes
-	// for (int i=0; i<3; i++){
-	// 	Read(&f_host, &M, &N, filename, X, 1);
+		    cudaFree(f);
+		    cudaFree(temp);
+		    cudaFree(f_out);
+		    delete[] f_host;
+		    delete[] f_hostout;
+		}
+		std::cout << "" << std::endl;
+	  
+		// Ejecucion pregunta 2
+		// metodo AoS con if, terciario y booleano
+		// Matriz con bordes
+		for (int i=0; i<3; i++){
+			Read(&f_host, &M, &N, filename, X, 1);
 
-	// 	gs = (int)ceil((float) M * N * X / bs);    
-	// 	cudaMalloc((void**)&f, M * N * X * sizeof(int));
-	// 	cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
-	// 	cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
-	// 	// cudaMalloc((void**)&temp, M * N * X * sizeof(int));
-	// 	validar(f_host, N, M, 0);
+			gs = (int)ceil((float) M * N * X / bs);    
+			cudaMalloc((void**)&f, M * N * X * sizeof(int));
+			cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
+			cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
+			// cudaMalloc((void**)&temp, M * N * X * sizeof(int));
+			//validar(f_host, N, M, 0);
 
-	// 	cudaEventCreate(&ct1);
-	// 	cudaEventCreate(&ct2);
-	// 	cudaEventRecord(ct1);
+			cudaEventCreate(&ct1);
+			cudaEventCreate(&ct2);
+			cudaEventRecord(ct1);
 
-	// 	// Iteraciones de time step 
-	// 	for (int j=0; j<1000; j++){
- //        	f_out_0<<<gs, bs>>>(f_out, N, M);
-	//     	kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, i);
-	// 		kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, i);
-	//     	//memory swap
-	// 		temp = f;
-	// 		f = f_out;
-	// 		f_out = temp;
-	//     }
-		 
-	// 	cudaEventRecord(ct2);
-	// 	cudaEventSynchronize(ct2);
-	// 	cudaEventElapsedTime(&dt, ct1, ct2);
-	// 	f_hostout = new int[M * N * X];
-	// 	cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+			// Iteraciones de time step 
+			for (int j=0; j<iteraciones[iteracion]; j++){
+	        	f_out_0<<<gs, bs>>>(f_out, N, M);
+		    	kernelAoS_col_borde<<<gs, bs>>>(f, f_out, X, N, M, i);
+				kernelAoS_stream_borde<<<gs, bs>>>(f, f_out, N, M, i);
+		    	//memory swap
+				temp = f;
+				f = f_out;
+				f_out = temp;
+		    }
+			 
+			cudaEventRecord(ct2);
+			cudaEventSynchronize(ct2);
+			cudaEventElapsedTime(&dt, ct1, ct2);
+			f_hostout = new int[M * N * X];
+			cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
 
-	// 	// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+			// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
 
-	//     if (i == 0){
-	//     	metodo = "IF ";
-	//     }
-	//     else if (i == 1){
-	//     	metodo = "TERNARIO ";
-	//     } 
-	//     else if (i == 2) {
-	// 		metodo = "BOOLEANO ";
-	//     }
+		    if (i == 0){
+		    	metodo = "IF       ";
+		    }
+		    else if (i == 1){
+		    	metodo = "TERNARIO ";
+		    } 
+		    else if (i == 2) {
+				metodo = "BOOLEANO ";
+		    }
 
-	// 	std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
-	// 	validar(f_hostout, N, M, 1);
+			std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
+			// validar(f_hostout, N, M, 1);
 
-	// 	cudaFree(f);
-	// 	cudaFree(temp);
-	// 	cudaFree(f_out);
-	// 	delete[] f_host;
-	// 	delete[] f_hostout;
-	// }
+			cudaFree(f);
+			cudaFree(temp);
+			cudaFree(f_out);
+			delete[] f_host;
+			delete[] f_hostout;
+		}
+		std::cout << "" << std::endl;
 
-  	// Ejecucion pregunta 3
-	//-----------------------------------------------------------------------
-	// metodo AoS con if todo en un solo kernel
-	// Matriz con bordes
-	Read(&f_host, &M, &N, filename, X, 1);
+	  	// Ejecucion pregunta 3
+		//-----------------------------------------------------------------------
+		// metodo AoS con if todo en un solo kernel
+		// Matriz con bordes
+		Read(&f_host, &M, &N, filename, X, 1);
 
-	gs = (int)ceil((float) M * N * X / bs);    
-	cudaMalloc((void**)&f, M * N * X * sizeof(int));
-	cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
-	cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
+		gs = (int)ceil((float) M * N * X / bs);    
+		cudaMalloc((void**)&f, M * N * X * sizeof(int));
+		cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
+		cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 
-	validar(f_host, N, M, 0);
+		//validar(f_host, N, M, 0);
 
-	cudaEventCreate(&ct1);
-	cudaEventCreate(&ct2);
-	cudaEventRecord(ct1);
+		cudaEventCreate(&ct1);
+		cudaEventCreate(&ct2);
+		cudaEventRecord(ct1);
 
-	kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
-	// Iteraciones de time step 
-	for (int j=0; j<1000; j++){
-		f_out_0<<<gs, bs>>>(f_out, N, M);
-		kernelAoS_stream_col_borde<<<gs, bs>>>(f, f_out, N, M, 0);
-		//memory swap
-		temp = f;
-		f = f_out;
-		f_out = temp;
+		kernelAoS_col<<<gs, bs>>>(f, f_out, X, N, M);
+		// Iteraciones de time step 
+		for (int j=0; j<iteraciones[iteracion]; j++){
+			f_out_0<<<gs, bs>>>(f_out, N, M);
+			kernelAoS_stream_col_borde<<<gs, bs>>>(f, f_out, N, M, 0);
+			//memory swap
+			temp = f;
+			f = f_out;
+			f_out = temp;
+		}
+			
+		cudaEventRecord(ct2);
+		cudaEventSynchronize(ct2);
+		cudaEventElapsedTime(&dt, ct1, ct2);
+		f_hostout = new int[M * N * X];
+		cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
+
+		// Write_AoS(f_hostout, M, N, "initial_A.txt\0");
+
+
+		std::cout << "Tiempo AoS con bordes y operador if en un solo kernel: " <<  dt << "[ms]\n" << std::endl;
+		// validar(f_hostout, N, M, 1);
+
+		cudaFree(f);
+		cudaFree(temp);
+		cudaFree(f_out);
+		delete[] f_host;
+		delete[] f_hostout;
 	}
-		
-	cudaEventRecord(ct2);
-	cudaEventSynchronize(ct2);
-	cudaEventElapsedTime(&dt, ct1, ct2);
-	f_hostout = new int[M * N * X];
-	cudaMemcpy(f_hostout, f, M * N * X * sizeof(int), cudaMemcpyDeviceToHost);
-
-	Write_AoS(f_hostout, M, N, "initial_A.txt\0");
-
-
-	std::cout << "Tiempo AoS con bordes y operador if en un solo kernel: " <<  dt << "[ms]" << std::endl;
-	validar(f_hostout, N, M, 1);
-
-	cudaFree(f);
-	cudaFree(temp);
-	cudaFree(f_out);
-	delete[] f_host;
-	delete[] f_hostout;
 
 
 	return 0;
