@@ -265,26 +265,26 @@ __global__ void kernelAoS_col_borde(int *f, int *f_out, int X, int N, int M, int
 	    //operador ternario
 	    else if (j == 1){
 	        
-	        f[idb] = (borde ? f[idb] : 
+	        f[idb] = (borde ? f0 : 
 	                  (horizontal ? 0:
-	                   (vertical ? 1 : f[idb])));
-	        f[idb+1] = (borde ? f[idb +1 ] : 
+	                   (vertical ? 1 : f0)));
+	        f[idb+1] = (borde ? 1 : 
 	                  (horizontal ? 1:
-	                   (vertical ? 0 : f[idb+ 1])));
-	        f[idb+2] = (borde ? f[idb +2] : 
+	                   (vertical ? 0 : f1)));
+	        f[idb+2] = (borde ? f2 : 
 	                  (horizontal ? 0:
-	                   (vertical ? 1 : f[idb +2])));
-	        f[idb+3] = (borde ? f[idb +3] : 
+	                   (vertical ? 1 : f2)));
+	        f[idb+3] = (borde ? f3 : 
 	                  (horizontal ? 1:
-	                   (vertical ? 0 : f[idb + 3])));
+	                   (vertical ? 0 : f3)));
 	    }
 
 	    //operador booleano
 	    else if (j == 2){
-	        f[idb] 	  =  (borde) * f[idb]  	  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb]));
-	        f[idb+ 1] =  (borde) * f[idb+ 1]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 1]));
-	        f[idb+ 2] =  (borde) * f[idb+ 2]  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f[idb+ 2]));
-	        f[idb+ 3] =  (borde) * f[idb+ 3]  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f[idb+ 3]));
+	        f[idb] 	  =  (borde) * f0  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f0));
+	        f[idb+ 1] =  (borde) * f1  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f1));
+	        f[idb+ 2] =  (borde) * f2  +  abs(borde -1)  * ((horizontal) * 0 + abs(horizontal-1) * ((vertical) * 1 + abs(vertical -1) * f2));
+	        f[idb+ 3] =  (borde) * f3  +  abs(borde -1)  * ((horizontal) * 1 + abs(horizontal-1) * ((vertical) * 0 + abs(vertical -1) * f3));
 	    }
 	}
 }
