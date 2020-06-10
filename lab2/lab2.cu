@@ -18,22 +18,6 @@ void Read(int **f, int *M, int *N, const char *filename, int X, int tipo) {
 		        // printf("%d ", i*4 + x);
 			}
 	    }
-
-	    // Datos M = 6, N = 4
-
-	    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 											23
-	    // 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 											47
-	    // 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 											71
-	    // 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 											95
-	    
-	    //  0 24 48 72  1 25 49 73  2 26 50 74  3 27 51 75  4 28 52 76   5 29 53 77  6 30 54 78  7 31 55 79  8 32 56 80 ... 95
-
-	    //  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  1  1  1  1  1  1  1  1  1 ..    		 3	(x) < X
-	    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23  0  1  2  3  4  5  6  7  8 ...			23 (i) < N*M
-
-	    //  i*4 + x
-	    //  0  4  8 12 16 20 24 28 		....  		1  5  9 13 17 21 25 29    ......	2  6 10 14 18 22 	....	3  7 11 15 19 .. 
-
 	} else{ // SoA 
 		for(int j=0; j<X; j++){
 	    	for(int i = 0; i < Largo; i++){
@@ -384,7 +368,8 @@ __global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M, int
 		int x, y, idb;
 		idb = tid*4;        //indice del f0 en el arreglo
 		x = tid % M; 
-		y = tid / M; 
+		y = tid / M;
+		int f_i[4];
 
 		int nd[] = {modulo(x+1,M)  + y*M, 
 					x              + modulo(y+1, N) *M, 
@@ -405,10 +390,13 @@ __global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M, int
 				//no se aplican condiciones de borde
 				if (f[nd[i]*4 + (i+2)%4] == 1){
 					f_out[tid * 4 + (i+2)%4] = 1;
+					f_i[i] = 1;
 				} else if(vecino_borde && f[nd[i]*4 + i%4] == 1){ // Si vecino esta en el borde puede reflejar
 					f_out[tid * 4 + (i+2)%4] = 1;
+					f_i[i] = 1;
 				} else{
 					f_out[tid * 4 + (i+2)%4] = 0;
+					f_i[i] = 0;
 				}
 			}
 			else if (distancia_borde == 0){
@@ -421,38 +409,39 @@ __global__ void kernelAoS_stream_col_borde(int *f, int *f_out, int N, int M, int
 				    if (abj && i != 3){ // Nodo en el borde de abajo
 				    	if((der && i != 0) || (arr && i != 1)){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	} else if(izq && i != 2){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	} else if(!der && !izq){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	}
 				    } else if ((izq && i != 2) || (der && i != 0)){
 				        if(arr && i != 1){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	} else if(abj && i != 3){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	} else if(!abj && !arr){
 				    		f_out[tid*4 + (i+2)%4] = 1;
+				    		f_i[i] = 1;
 				    	}
 				    }
 				} else {
 					f_out[tid*4 + (i+2)%4] = 0;
+					f_i[i] = 0;
 				}
 			}
 		}
 
 		//manejar colisiones en el arreglo f_out
 		//----------------------------------------------------------
-		// Almacenamos los datos en memoria
-		int f0, f1, f2, f3;
-		f0 = f_out[idb+0];
-		f1 = f_out[idb+1];
-		f2 = f_out[idb+2];
-		f3 = f_out[idb+3];
 
 		bool borde =  (x == 0 || x == M -1 || y == 0 || y == N-1);
-		bool horizontal = (f0 && f2 && f1 == 0 && f3 == 0);
-		bool vertical = (f0 == 0 && f2 == 0 && f1 && f3);
+		bool horizontal = (f_i[(0+2)%4] && f_i[(2+2)%4] && f_i[(1+2)%4] == 0 && f_i[(3+2)%4] == 0);
+		bool vertical = (f_i[(0+2)%4] == 0 && f_i[(2+2)%4] == 0 && f_i[(1+2)%4] && f_i[(3+2)%4]);
 
 		//if statement
 		if (j == 0){
@@ -482,11 +471,11 @@ int main(int argc, char **argv){
 	const char *metodo;
 	int M, N;
     int *f_host, *f_hostout, *f, *f_out, *temp;
-    int iteraciones[] = {100, 300, 500, 1000};
+    int iteraciones[] = {1000};
     char filename[15] = "initial.txt\0";
 	int gs, bs = 256;
 	int X = 4;
-	for(int iteracion = 0; iteracion<4; iteracion++){
+	for(int iteracion = 0; iteracion<1; iteracion++){
 		std::cout << "Archivo 2000x2000 con " << iteraciones[iteracion] << " iteraciones." << std::endl;
 
 		// Ejecucion pregunta 1
@@ -499,7 +488,6 @@ int main(int argc, char **argv){
 		    cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 		    cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 		    cudaMalloc((void**)&temp, M * N * X * sizeof(int));
-	    	//validar(f_host, N, M, 0);
 
 		    cudaEventCreate(&ct1);
 		    cudaEventCreate(&ct2);
@@ -538,7 +526,6 @@ int main(int argc, char **argv){
 			}
 
 			std::cout << "Tiempo " << metodo << ": " << dt << "[ms]" << std::endl;
-			// validar(f_hostout, N, M, 1);
 
 		    cudaFree(f);
 		    cudaFree(temp);
@@ -559,7 +546,6 @@ int main(int argc, char **argv){
 			cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 			cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 			// cudaMalloc((void**)&temp, M * N * X * sizeof(int));
-			//validar(f_host, N, M, 0);
 
 			cudaEventCreate(&ct1);
 			cudaEventCreate(&ct2);
@@ -595,7 +581,6 @@ int main(int argc, char **argv){
 		    }
 
 			std::cout << "Tiempo AoS con bordes y operador: " << metodo << dt << "[ms]" << std::endl;
-			// validar(f_hostout, N, M, 1);
 
 			cudaFree(f);
 			cudaFree(temp);
@@ -616,7 +601,6 @@ int main(int argc, char **argv){
 		cudaMemcpy(f, f_host, M * N * X * sizeof(int), cudaMemcpyHostToDevice);
 		cudaMalloc((void**)&f_out, M * N * X * sizeof(int));
 
-		//validar(f_host, N, M, 0);
 
 		cudaEventCreate(&ct1);
 		cudaEventCreate(&ct2);
@@ -643,7 +627,6 @@ int main(int argc, char **argv){
 
 
 		std::cout << "Tiempo AoS con bordes y operador if en un solo kernel: " <<  dt << "[ms]\n" << std::endl;
-		// validar(f_hostout, N, M, 1);
 
 		cudaFree(f);
 		cudaFree(temp);
