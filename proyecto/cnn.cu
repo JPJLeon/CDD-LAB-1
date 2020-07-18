@@ -4,11 +4,19 @@
 #include <time.h>
 
 // Variables globales GPU y CPU
-#define l_kernel 2
+#define l_kernel 3
 
 /******************************
  *  Procesamiento Matriz CPU  *
  ******************************/
+
+/*
+ *  Funcion Max
+ */
+float MaxCPU(float A, float B){
+	float result = A > B ? A : B;
+	return result;
+}
 
 /*
  *  Lectura Archivo
@@ -61,7 +69,7 @@ void GenMatrix(float** kernel, int N, int M) {
     float *kernel1 = new float[M*N];
 	for(int i = 0; i < M*N; i++){
 		// Random entre -5 y 5
-		kernel1[i] = ((rand() % 5000) /1000.0) - (rand() % 3);
+		kernel1[i] = ((rand() % 5000) /1000.0) - (rand() % 1);
 	}
     *kernel = kernel1;
 }
@@ -123,7 +131,7 @@ void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N, int id_k
 void SumaMatrizCPU(float **out, float *R, float *G, float *B, int M, int N){
 	float* sum = new float[M*N];
 	for(int i=0; i < M*N; i++){
-		sum[i] = R[i] + G[i] + B[i] > 0 ? R[i] + G[i] + B[i] : 0;
+		sum[i] =  MaxCPU(R[i] + G[i] + B[i], 0.0);
 	}
 	*out = sum;
 }
@@ -134,9 +142,50 @@ void SumaMatrizCPU(float **out, float *R, float *G, float *B, int M, int N){
 void ReluCPU(float **out, int M, int N){
 	float* sum = new float[M*N];
 	for(int i=0; i < M*N; i++){
-		sum[i] = (*out)[i] > 0 ? (*out)[i] : 0;
+		sum[i] = MaxCPU((*out)[i], 0.0);
 	}
 	*out = sum;
+}
+
+/*
+ *  Funcion Max pooling 2x2
+ */
+void PoolingCPU(float **out, int *M, int *N){
+	int new_N, new_M;
+	float max, v1, v2, v3, v4;
+	new_N = (*N)/2;
+	new_M = (*M)/2;
+	if((*N)%2){
+		new_N++;
+	}
+	if((*M)%2){
+		new_M++;
+	}
+	printf("new_M: %d new_N: %d\n", new_M, new_N);
+	float* temp = new float[new_N*new_M];
+	for(int i=0; i < new_M; i++){
+		for(int j=0; j < new_N; j++){
+			v1 = (*out)[j*2 + i*2*(*N)];
+			printf("v1: %d\n", j*2 + i*2*(*N));
+			v2 = 0;
+			v3 = 0;
+			v4 = 0;
+			// Agregamos los valores extremos en caso de ser N o M impar
+			if(j != new_N-1){
+				v2 = (*out)[j*2 + 1 + i*2*(*N)];
+				if(new_M == 1 || i != new_M-1){
+					v4 = (*out)[j*2 + 1 + (i+1)*(*N)];
+				}
+			}
+			if(new_M == 1 || i != new_M-1){
+				v3 = (*out)[j*2 + (i+1)*(*N)];
+			}
+			max = MaxCPU(MaxCPU(v1, v2), MaxCPU(v3, v4));
+			temp[j + i*new_N] = max;
+		}
+	}
+	*out = temp;
+	*N = new_N; *M = new_M;
 }
 
 /*
@@ -185,12 +234,12 @@ int main(int argc, char **argv){
 			// Se restablecen valores originales para un nuevo kernel
 			M = M_initial; N = N_initial;
 			int id_kernel = k;
-			printf("Kernel %d:\n", id_kernel);
-			ShowMatrix(kernels[id_kernel], l_kernel, l_kernel);
 
-			printf("M: %d N: %d\n", M, N);
 			// Actualizamos N,M si aun se puede
 			if(N - l_kernel + 1 > 0 && M - l_kernel + 1 > 0){
+				printf("Kernel %d:\n", id_kernel);
+				ShowMatrix(kernels[id_kernel], l_kernel, l_kernel);
+				printf("M: %d N: %d\n", M, N);
 				N = N - l_kernel + 1;
 				M = M - l_kernel + 1;
 			} else{
@@ -218,11 +267,13 @@ int main(int argc, char **argv){
 				ConvolucionCPU(output_images[id_kernel], &output_images[id_kernel], kernels[id_kernel], M, N, id_kernel);
 				ReluCPU(&output_images[id_kernel], M, N);
 			}
+			ShowMatrix(output_images[id_kernel], M, N);
+			if(M*N > 1){
+				PoolingCPU(&output_images[id_kernel], &M, &N);
+			}
 			printf("Imagen salida %d:\n", c);
 			ShowMatrix(output_images[id_kernel], M, N);
 		}
-		// printf("Imagen salida %d:\n", c);
-		// ShowMatrix(output_images[0], M, N);
     }
 
 	/*
