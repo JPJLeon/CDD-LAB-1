@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #define xd 0.001
-#define STEPS 2
+#define STEPS 10
 
 /*  Lectura Archivo */
 void Read(float **f, int *M, int *N, int tipo=0) {
@@ -187,20 +187,13 @@ __global__ void kernel_2(float *f, float *f_out, int N, int M){
 	    float anterior = f[modulo(-1, N) + tid*N];
 			float actual = f[0 + tid*N];
 			float siguiente; 
-			//printf("%d %d\n", anterior, actual);
-			float *temp;
 			for (int i = 0; i< N; i++){
 					siguiente = f[modulo(i+1, N) + tid*N];
 					f_out[i + tid*N] = (anterior + siguiente) / 2; //xd
 					anterior = actual;
 					actual = siguiente;
 			}
-			temp = f_out;
-			f_out = f;
-			f = temp;
 	}
-		f[0] = 20000;
-		f_out[0] = 2000000;
 }
 
 
@@ -224,12 +217,13 @@ void GPU_4_stream_horizontal(){
 
 		Read(&f_host, &M, &N,1);
 		gs = (int)ceil((float) (M/4) / bs);    
-		imprimir_malla(f_host, N,M);
+		//imprimir_malla(f_host, N,M);
 		int size =  M/4 * N ;
 
 		cudaMalloc(&f_in,  M * N* sizeof(float));
 		cudaMalloc(&f_out, M * N* sizeof(float));
 		float *out = new float[N*M];
+		float *temp;
 
 		//host to device
 		cudaMemcpyAsync(&f_in[size*0], &f_host[size*0], size * sizeof(float), cudaMemcpyHostToDevice, str1);
@@ -244,13 +238,16 @@ void GPU_4_stream_horizontal(){
 		cudaEventRecord(ct1);
 	
 		// llamadas al kernel
-		kernel_2<<<gs, bs,0,str1>>>(f_in, f_out, N, M);
 		for (int i = 0 ; i< STEPS; i++){
-			//kernel_2<<<gs, bs,0,str2>>>(&f_in[size*0], &f_out[size*0], N, M);
-			//kernel_2<<<gs, bs,0,str3>>>(&f_in[size*0], &f_out[size*0], N, M);
-			//kernel_2<<<gs, bs,0,str4>>>(&f_in[size*0], &f_out[size*0], N, M);
+			kernel_2<<<gs, bs,0,str1>>>(f_in, f_out, N, M);
+			kernel_2<<<gs, bs,0,str2>>>(&f_in[size*1], &f_out[size*1], N, M);
+			kernel_2<<<gs, bs,0,str3>>>(&f_in[size*2], &f_out[size*2], N, M);
+			kernel_2<<<gs, bs,0,str4>>>(&f_in[size*3], &f_out[size*3], N, M);
+			temp = f_out;
+			f_out = f_in;
+			f_in = temp;
 		}
-		//f_out_1 = f_in_1;
+		//f_out =f_in;
 		
 	
 	
@@ -267,16 +264,12 @@ void GPU_4_stream_horizontal(){
 
 		//Write(out, M, N, "initial_S.txt\0");
 		cudaDeviceSynchronize();
-		imprimir_malla(f_host, N,M);
+		//imprimir_malla(out, N,M);
 		std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
 		cudaFree(f_host);
 		cudaFree(f_in);
 		cudaFree(f_out);
 }
-
-
-
-
 
 
 
@@ -298,11 +291,11 @@ __global__ void kernel3(int *f, int *f_out, int X, int N, int M){
 int main(int argc, char **argv){
 		
 	//ejecucion cpu
-	//CPU();
+	//CPU(); //212
 
-	//GPU_1_stream();
+	GPU_1_stream(); //23 1784
 
-	GPU_4_stream_horizontal();
+	//GPU_4_stream_horizontal(); //23 1442
 
 	//GPU_4_stream_vertical();
 	
