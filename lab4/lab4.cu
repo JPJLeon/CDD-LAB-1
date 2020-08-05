@@ -289,6 +289,7 @@ __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 		col_ant = modulo(col-1, N);
 		sub_col = modulo(col, N/4);
 		for (int i = 0; i< M; i++){
+			siguiente = f[(sub_col+1)*M + i];
 			// Si esta a un costado
 			if(!modulo(col, N-1)){
 				// Cada stream considera f[0] como su primer valor de su arreglo 
@@ -300,9 +301,11 @@ __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 				}
 			} else{
 				anterior = f[(sub_col-1)*M + i];
-				siguiente = f[(sub_col+1)*M + i];
 			}
 			f_out[sub_col*M + i] = (anterior + siguiente) / 2.0; //dx
+			// if(col == 0){
+			// 	printf("ant: %.0f sig: %.0f\n", anterior, siguiente);
+			// }
 		}
 	}
 }
