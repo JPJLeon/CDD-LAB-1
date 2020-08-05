@@ -343,7 +343,6 @@ void GPU_4_stream_vertical(){
 	cudaDeviceSynchronize();
 	cudaMemcpyAsync(&f_in[size*3], &f_host[size*3], size * sizeof(float), cudaMemcpyHostToDevice, str4);
 	cudaDeviceSynchronize();
-	
 	//kernel calls
 	cudaEventCreate(&ct1);
 	cudaEventCreate(&ct2);
@@ -355,6 +354,7 @@ void GPU_4_stream_vertical(){
 		kernel_vertical<<<gs, bs, 0, str2>>>(&f_in[size*1], &f_out[size*1], N, M, 1);
 		kernel_vertical<<<gs, bs, 0, str3>>>(&f_in[size*2], &f_out[size*2], N, M, 2);
 		kernel_vertical<<<gs, bs, 0, str4>>>(&f_in[size*3], &f_out[size*3], N, M, 3);
+		cudaDeviceSynchronize();
 		temp = f_out;
 		f_out = f_in;
 		f_in = temp;
