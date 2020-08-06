@@ -72,7 +72,7 @@ void imprimir_malla(float *f, int N , int M){
 void imprimir_malla_t(float *f, int N , int M){
 	for(int i = 0; i< N; i ++){
 		for(int j = 0; j< M; j ++){
-			printf("%.1f ", f[j + i*M]);
+			printf("%.8f ", f[j + i*M]);
 			// printf("%d\n", i + j*N);
 		}
 		printf("\n");
@@ -80,15 +80,6 @@ void imprimir_malla_t(float *f, int N , int M){
 	printf("--------\n");
 }
 
-void malla_transpuesta(float *f, int N , int M){
-	float *out = new float[N*M];
-	for(int j = 0; j< M; j ++){
-		for(int i = 0; i< N; i ++){
-			out[i + j*N] = f[j + i*N];
-		}
-	}
-	*f = *out;
-}
 
 /* Procesamiento CPU */
 void CPU_1_step(float *f_in, float *f_out, int N, int M){
@@ -96,7 +87,7 @@ void CPU_1_step(float *f_in, float *f_out, int N, int M){
 	for (int i = 0; i < N*M; i++){
 		x = i % N;
 		y = i / N;
-		f_out[i] = (f_in[modulo(x+1, N) + y*N] + f_in[modulo(x-1, N) + y*N]) /(2)*dx; // dx
+		f_out[i] = (f_in[modulo(x+1, N) + y*N] + f_in[modulo(x-1, N) + y*N]) /(2*dx); // dx
 		//f_out[i] = 2;
 	}
 }
@@ -137,7 +128,7 @@ __global__ void kernel_1(float *f, float *f_out, int N, int M){
 		float siguiente; 
 		for (int i = 0; i< N; i++){
 			siguiente = f[modulo(i+1, N) + tid*N];
-			f_out[i + tid*N] = (anterior + siguiente) / (2.0)*dx; //dx
+			f_out[i + tid*N] = (anterior + siguiente) / (2.0*dx); //dx
 
 			anterior = actual;
 			actual = siguiente;
@@ -201,7 +192,7 @@ __global__ void kernel_2(float *f, float *f_out, int N, int M){
 			float siguiente; 
 			for (int i = 0; i< N; i++){
 					siguiente = f[modulo(i+1, N) + tid*N];
-					f_out[i + tid*N] = (anterior + siguiente) / 2.0*dx; //dx
+					f_out[i + tid*N] = (anterior + siguiente) / (2.0*dx); //dx
 					anterior = actual;
 					actual = siguiente;
 			}
@@ -280,27 +271,33 @@ void GPU_4_stream_horizontal(){
 
 __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
-	if(tid < N/4){ //1 thread por cada columna
-		int col, col_ant, sub_col;
+	if(tid < N/4){ //1 thread por cada columna del stream
+		int col, col_ant;
 		float anterior, siguiente;
 		col = str*N/4 + tid;
 		col_ant = modulo(col-1, N);
-		sub_col = modulo(col, N/4);
+		// printf("tid: %d\n", tid);
+		if(col == 0){
+			printf("subcol: %d\n", tid);
+		}
 		for (int i = 0; i< M; i++){
-			siguiente = f[(sub_col+1)*M + i];
+			siguiente = f[(tid+1)*M + i];
 			// Si esta a un costado
 			if(!modulo(col, N-1)){
 				// Cada stream considera f[0] como su primer valor de su arreglo 
 				if(!col){ // Si esta en borde izq
 					anterior = f[col_ant*M + i];
 				} else{ // Si esta en borde der
-					anterior = f[(sub_col-1)*M + i];
+					anterior = f[(tid-1)*M + i];
 					siguiente = f[-col_ant*M + i];
 				}
 			} else{
-				anterior = f[(sub_col-1)*M + i];
+				anterior = f[(tid-1)*M + i];
 			}
-			f_out[sub_col*M + i] = (anterior + siguiente) / 2.0*dx; //dx
+			if(col == 7){
+				printf("ant: %.1f sig:%.1f\n", anterior, siguiente);
+			}
+			f_out[tid*M + i] = (anterior + siguiente) / (2.0*dx); //dx
 		}
 	}
 }
@@ -314,7 +311,7 @@ void GPU_4_stream_vertical(){
 	float *f_host;
 	float *f_in;
 	float *f_out;
-	int gs = 1, bs = 256;
+	int gs, bs = 256;
 
 	//crear streams
 	cudaStream_t str1, str2, str3, str4;
@@ -349,7 +346,7 @@ void GPU_4_stream_vertical(){
 	cudaEventRecord(ct1);
 
 	// llamadas al kernel
-	for (int i = 0 ; i< STEPS; i++){
+	for (int i = 0 ; i< 3; i++){
 		kernel_vertical<<<gs, bs, 0, str1>>>(f_in, f_out, N, M, 0);
 		kernel_vertical<<<gs, bs, 0, str2>>>(&f_in[size*1], &f_out[size*1], N, M, 1);
 		kernel_vertical<<<gs, bs, 0, str3>>>(&f_in[size*2], &f_out[size*2], N, M, 2);
@@ -372,8 +369,7 @@ void GPU_4_stream_vertical(){
 
 	//Write(out, M, N, "initial_S.txt\0");
 	cudaDeviceSynchronize();
-	// imprimir_malla_t(out, N, M);
-	// malla_transpuesta(out, N, M);
+	imprimir_malla_t(out, N, M);
 	std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
 	cudaFreeHost(f_host);
 	cudaFree(f_in);
