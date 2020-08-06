@@ -8,7 +8,7 @@
 /*  Lectura Archivo */
 void Read(float **f, int *M, int *N, int tipo=0) {
     FILE *fp;
-    fp = fopen("initial2.txt\0", "r");
+    fp = fopen("initial.txt\0", "r");
     fscanf(fp, "%d %d\n", M, N);
 	float *f1;
 
@@ -72,7 +72,7 @@ void imprimir_malla(float *f, int N , int M){
 void imprimir_malla_t(float *f, int N , int M){
 	for(int i = 0; i< N; i ++){
 		for(int j = 0; j< M; j ++){
-			printf("%.8f ", f[j + i*M]);
+			printf("%.2f ", f[j + i*M]);
 			// printf("%d\n", i + j*N);
 		}
 		printf("\n");
@@ -277,9 +277,6 @@ __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 		col = str*N/4 + tid;
 		col_ant = modulo(col-1, N);
 		// printf("tid: %d\n", tid);
-		if(col == 0){
-			printf("subcol: %d\n", tid);
-		}
 		for (int i = 0; i< M; i++){
 			siguiente = f[(tid+1)*M + i];
 			// Si esta a un costado
@@ -294,10 +291,7 @@ __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 			} else{
 				anterior = f[(tid-1)*M + i];
 			}
-			if(col == 7){
-				printf("ant: %.1f sig:%.1f\n", anterior, siguiente);
-			}
-			f_out[tid*M + i] = (anterior + siguiente) / (2.0*dx); //dx
+			f_out[tid*M + i] = (anterior - siguiente) / (2.0*dx); //dx
 		}
 	}
 }
@@ -331,6 +325,10 @@ void GPU_4_stream_vertical(){
 	float *out = new float[N*M];
 	float *temp;
 
+	clock_t t1, t2;
+	double ms;
+	t1 = clock();
+
 	//host to device
 	cudaMemcpyAsync(&f_in[size*0], &f_host[size*0], size * sizeof(float), cudaMemcpyHostToDevice, str1);
 	cudaDeviceSynchronize();
@@ -341,12 +339,12 @@ void GPU_4_stream_vertical(){
 	cudaMemcpyAsync(&f_in[size*3], &f_host[size*3], size * sizeof(float), cudaMemcpyHostToDevice, str4);
 	cudaDeviceSynchronize();
 	//kernel calls
-	cudaEventCreate(&ct1);
-	cudaEventCreate(&ct2);
-	cudaEventRecord(ct1);
+	// cudaEventCreate(&ct1);
+	// cudaEventCreate(&ct2);
+	// cudaEventRecord(ct1);
 
 	// llamadas al kernel
-	for (int i = 0 ; i< 3; i++){
+	for (int i = 0 ; i< STEPS; i++){
 		kernel_vertical<<<gs, bs, 0, str1>>>(f_in, f_out, N, M, 0);
 		kernel_vertical<<<gs, bs, 0, str2>>>(&f_in[size*1], &f_out[size*1], N, M, 1);
 		kernel_vertical<<<gs, bs, 0, str3>>>(&f_in[size*2], &f_out[size*2], N, M, 2);
@@ -357,9 +355,13 @@ void GPU_4_stream_vertical(){
 		f_in = temp;
 	}
 
-	cudaEventRecord(ct2);
-	cudaEventSynchronize(ct2);
-	cudaEventElapsedTime(&dt, ct1, ct2);
+	// cudaEventRecord(ct2);
+	// cudaEventSynchronize(ct2);
+	// cudaEventElapsedTime(&dt, ct1, ct2);
+
+	t2 = clock();
+    ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
+	std::cout << "Tiempo: " << ms << "[ms]" << std::endl;
 
 	//device to host
 	cudaMemcpyAsync(&out[size*0], &f_in[size*0], size * sizeof(float), cudaMemcpyDeviceToHost,str1);
@@ -369,8 +371,8 @@ void GPU_4_stream_vertical(){
 
 	//Write(out, M, N, "initial_S.txt\0");
 	cudaDeviceSynchronize();
-	imprimir_malla_t(out, N, M);
-	std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
+	// imprimir_malla_t(out, N, M);
+	// std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
 	cudaFreeHost(f_host);
 	cudaFree(f_in);
 	cudaFree(f_out);
@@ -390,6 +392,6 @@ int main(int argc, char **argv){
 	// GPU_4_stream_horizontal(); //23 1442
 
 	GPU_4_stream_vertical();
-	
+
 	return 0;
 }
