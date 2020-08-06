@@ -128,7 +128,7 @@ __global__ void kernel_1(float *f, float *f_out, int N, int M){
 		float siguiente; 
 		for (int i = 0; i< N; i++){
 			siguiente = f[modulo(i+1, N) + tid*N];
-			f_out[i + tid*N] = (anterior + siguiente) / (2.0*dx); //dx
+			f_out[i + tid*N] = (siguiente - anterior) / (2.0*dx); //dx
 
 			anterior = actual;
 			actual = siguiente;
@@ -192,7 +192,7 @@ __global__ void kernel_2(float *f, float *f_out, int N, int M){
 			float siguiente; 
 			for (int i = 0; i< N; i++){
 					siguiente = f[modulo(i+1, N) + tid*N];
-					f_out[i + tid*N] = (anterior + siguiente) / (2.0*dx); //dx
+					f_out[i + tid*N] = (siguiente - anterior) / (2.0*dx); //dx
 					anterior = actual;
 					actual = siguiente;
 			}
@@ -291,7 +291,7 @@ __global__ void kernel_vertical(float *f, float *f_out, int N, int M, int str){
 			} else{
 				anterior = f[(tid-1)*M + i];
 			}
-			f_out[tid*M + i] = (anterior - siguiente) / (2.0*dx); //dx
+			f_out[tid*M + i] = (siguiente - anterior) / (2.0*dx); //dx
 		}
 	}
 }
