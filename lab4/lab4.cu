@@ -328,6 +328,9 @@ void GPU_4_stream_vertical(){
 	clock_t t1, t2;
 	double ms;
 	t1 = clock();
+	cudaEventCreate(&ct1);
+	cudaEventCreate(&ct2);
+	cudaEventRecord(ct1);
 
 	//host to device
 	cudaMemcpyAsync(&f_in[size*0], &f_host[size*0], size * sizeof(float), cudaMemcpyHostToDevice, str1);
@@ -339,9 +342,6 @@ void GPU_4_stream_vertical(){
 	cudaMemcpyAsync(&f_in[size*3], &f_host[size*3], size * sizeof(float), cudaMemcpyHostToDevice, str4);
 	cudaDeviceSynchronize();
 	//kernel calls
-	// cudaEventCreate(&ct1);
-	// cudaEventCreate(&ct2);
-	// cudaEventRecord(ct1);
 
 	// llamadas al kernel
 	for (int i = 0 ; i< STEPS; i++){
@@ -355,9 +355,9 @@ void GPU_4_stream_vertical(){
 		f_in = temp;
 	}
 
-	// cudaEventRecord(ct2);
-	// cudaEventSynchronize(ct2);
-	// cudaEventElapsedTime(&dt, ct1, ct2);
+	cudaEventRecord(ct2);
+	cudaEventSynchronize(ct2);
+	cudaEventElapsedTime(&dt, ct1, ct2);
 
 	t2 = clock();
     ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
@@ -372,7 +372,7 @@ void GPU_4_stream_vertical(){
 	//Write(out, M, N, "initial_S.txt\0");
 	cudaDeviceSynchronize();
 	// imprimir_malla_t(out, N, M);
-	// std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
+	std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
 	cudaFreeHost(f_host);
 	cudaFree(f_in);
 	cudaFree(f_out);
