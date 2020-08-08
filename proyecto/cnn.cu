@@ -4,7 +4,7 @@
 #include <time.h>
 
 // Variables globales GPU y CPU
-#define l_kernel 3
+#define l_kernel 4
 
 /******************************
  *  Procesamiento Matriz CPU  *
@@ -21,7 +21,7 @@ float MaxCPU(float A, float B){
 /*
  *  Lectura Archivo
 */
-void Read(float** R, float** G, float** B, int *M, int *N, const char *filename, int tipo) {    
+void Read(float** R, float** G, float** B, int *M, int *N, const char *filename, int tipo) {
     FILE *fp;
     fp = fopen(filename, "r");
     fscanf(fp, "%d %d\n", M, N);
@@ -60,18 +60,6 @@ void Write(float* out, int M_out, int N_out, const char *filename) {
         fprintf(fp, "%f ", out[i]);
     fprintf(fp, "%f\n", out[M_out*N_out-1]);
     fclose(fp);
-}
-
-/*
- *  Generador de float array kernel
- */
-void GenMatrix(float** kernel, int N, int M) {
-    float *kernel1 = new float[M*N];
-	for(int i = 0; i < M*N; i++){
-		// Random entre -5 y 5
-		kernel1[i] = ((rand() % 5000) /1000.0) - (rand() % 1);
-	}
-    *kernel = kernel1;
 }
 
 /*
@@ -128,10 +116,10 @@ void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N, int id_k
 /*
  *  Suma de Matrices R,G,B y Funcion de activacion RELU
  */
-void SumaMatrizCPU(float **out, float *R, float *G, float *B, int M, int N){
+void SumaMatrizCPU(float **out, float *R, int M, int N){
 	float* sum = new float[M*N];
 	for(int i=0; i < M*N; i++){
-		sum[i] =  MaxCPU(R[i] + G[i] + B[i], 0.0);
+		sum[i] =  MaxCPU(R[i], 0.0);
 	}
 	*out = sum;
 }
@@ -161,12 +149,12 @@ void PoolingCPU(float **out, int *M, int *N){
 	if((*M)%2){
 		new_M++;
 	}
-	printf("new_M: %d new_N: %d\n", new_M, new_N);
+	// printf("new_M: %d new_N: %d\n", new_M, new_N);
 	float* temp = new float[new_N*new_M];
 	for(int i=0; i < new_M; i++){
 		for(int j=0; j < new_N; j++){
 			v1 = (*out)[j*2 + i*2*(*N)];
-			printf("v1: %d\n", j*2 + i*2*(*N));
+			// printf("v1: %d\n", j*2 + i*2*(*N));
 			v2 = 0;
 			v3 = 0;
 			v4 = 0;
@@ -188,6 +176,58 @@ void PoolingCPU(float **out, int *M, int *N){
 	*N = new_N; *M = new_M;
 }
 
+void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float *Bhostout, float *Bhost, float *kernel, int M, int N){
+	float *output_image; // Conjunto de imagenes(matrices) de salida por kernel
+	int M_initial, N_initial;
+	// Por cada proceso de convolucion
+    for(int c=0; c<8; c++){
+    	printf("########## Convolucion %d ###########\n\n", c+1);
+    	// Se utiliza el ultimo M,N
+    	M_initial = M; N_initial = N;
+		// Se restablecen valores originales para un nuevo kernel
+		M = M_initial; N = N_initial;
+		// Actualizamos N,M si aun se puede
+		if(N - l_kernel + 1 > 0 && M - l_kernel + 1 > 0){
+			// printf("M: %d N: %d\n", M, N);
+			N = N - l_kernel + 1;
+			M = M - l_kernel + 1;
+		} else{
+			continue;
+		}
+		// Si es el primero se suman las matrices RGB resultantes
+		if(c == 0){
+			// Convoluciones y suma de RGB
+			// printf("Matriz Rhost:\n");
+			// ShowMatrix(Rhost, M + l_kernel - 1, N + l_kernel - 1);
+			// printf("Matriz Ghost:\n");
+			// ShowMatrix(Ghost, M + l_kernel - 1, N + l_kernel - 1);
+			// printf("Matriz Bhost:\n");
+			// ShowMatrix(Bhost, M + l_kernel - 1, N + l_kernel - 1);
+			// printf("M_out: %d N_out: %d\n", M, N);
+			ConvolucionCPU(Rhost, &Rhostout, kernel, M, N, 0);
+			// ConvolucionCPU(Ghost, &Ghostout, kernel, M, N, 0);
+			// ConvolucionCPU(Bhost, &Bhostout, kernel, M, N, 0);
+			SumaMatrizCPU(&output_image, Rhostout, M, N); //Contiene Relu
+		} else {
+			// Convolucion
+			// printf("Matriz:\n");
+			// ShowMatrix(output_image, M+ l_kernel - 1, N+ l_kernel - 1);
+			// printf("M_out: %d N_out: %d\n", M, N);
+			ConvolucionCPU(output_image, &output_image, kernel, M, N, 0);
+			ReluCPU(&output_image, M, N);
+		}
+		// ShowMatrix(output_image, M, N);
+		if(M*N > 1){
+			PoolingCPU(&output_image, &M, &N);
+		}
+		// printf("Imagen salida %d:\n", c);
+		// ShowMatrix(output_image, M, N);
+    }
+    printf("Imagen salida:\n");
+    printf("M: %d N: %d\n", M, N);
+	ShowMatrix(output_image, M, N);
+}
+
 /*
  *  Procesamiento GPU
  */
@@ -200,12 +240,16 @@ int main(int argc, char **argv){
     /*
      *  Inicializacion
      */
-	int M, N, M_initial, N_initial;
-	const int N_kernels = 20;
-	float *kernels[N_kernels]; // Conjunto de kernels(matrices) a usar
-	float *output_images[N_kernels]; // Conjunto de imagenes(matrices) de salida por kernel
+	int M, N;
+	float array[l_kernel*l_kernel] = {0, 1, 1, 0, 1, -2 , -2, 1, 1, -2, -2, 1, 0, 1, 1, 0}; // Conjunto de kernel(matrices) a usar
+	float *kernel = new float[l_kernel*l_kernel];
     float *Rhost, *Ghost, *Bhost;
     float *Rhostout, *Ghostout, *Bhostout;
+
+    Rhostout = new float[l_kernel*l_kernel];
+    Ghostout = new float[l_kernel*l_kernel];
+    Bhostout = new float[l_kernel*l_kernel];
+
     // float *R, *G, *B;
     // float *Rout, *Gout, *Bout;
 	// int gs = 1, bs = 1024;
@@ -213,68 +257,15 @@ int main(int argc, char **argv){
 	// cudaEvent_t ct1, ct2;
 
     // Lectura de archivo
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 0);
-
-	// Generar kernels
-    for(int j=0; j<N_kernels; j++){
-    	GenMatrix(&kernels[j], l_kernel, l_kernel);
-    }
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	kernel = &array[0];
+	printf("Kernel:\n");
+	ShowMatrix(kernel, l_kernel, l_kernel);
 
 	/*
      *  Parte CPU
      */
-
-    // Por cada proceso de convolucion
-    for(int c=0; c<5; c++){
-    	printf("########## Convolucion %d ###########\n\n", c+1);
-    	// Se utiliza el ultimo M,N
-    	M_initial = M; N_initial = N;
-    	// Por cada kernel a utilizar
-		for(int k=0; k<2; k++){
-			// Se restablecen valores originales para un nuevo kernel
-			M = M_initial; N = N_initial;
-			int id_kernel = k;
-
-			// Actualizamos N,M si aun se puede
-			if(N - l_kernel + 1 > 0 && M - l_kernel + 1 > 0){
-				printf("Kernel %d:\n", id_kernel);
-				ShowMatrix(kernels[id_kernel], l_kernel, l_kernel);
-				printf("M: %d N: %d\n", M, N);
-				N = N - l_kernel + 1;
-				M = M - l_kernel + 1;
-			} else{
-				continue;
-			}
-			// Si es el primero se suman las matrices RGB resultantes
-			if(c == 0){
-				// Convoluciones y suma de RGB
-				printf("Matriz Rhost:\n");
-				ShowMatrix(Rhost, M + l_kernel - 1, N + l_kernel - 1);
-				printf("Matriz Ghost:\n");
-				ShowMatrix(Ghost, M + l_kernel - 1, N + l_kernel - 1);
-				printf("Matriz Bhost:\n");
-				ShowMatrix(Bhost, M + l_kernel - 1, N + l_kernel - 1);
-				printf("M_out: %d N_out: %d\n", M, N);
-				ConvolucionCPU(Rhost, &Rhostout, kernels[id_kernel], M, N, id_kernel);
-				ConvolucionCPU(Ghost, &Ghostout, kernels[id_kernel], M, N, id_kernel);
-				ConvolucionCPU(Bhost, &Bhostout, kernels[id_kernel], M, N, id_kernel);
-				SumaMatrizCPU(&output_images[id_kernel], Rhostout, Ghostout, Bhostout, M, N);
-			} else {
-				// Convolucion
-				printf("Matriz:\n");
-				ShowMatrix(output_images[id_kernel], M+ l_kernel - 1, N+ l_kernel - 1);
-				printf("M_out: %d N_out: %d\n", M, N);
-				ConvolucionCPU(output_images[id_kernel], &output_images[id_kernel], kernels[id_kernel], M, N, id_kernel);
-				ReluCPU(&output_images[id_kernel], M, N);
-			}
-			ShowMatrix(output_images[id_kernel], M, N);
-			if(M*N > 1){
-				PoolingCPU(&output_images[id_kernel], &M, &N);
-			}
-			printf("Imagen salida %d:\n", c);
-			ShowMatrix(output_images[id_kernel], M, N);
-		}
-    }
+	cnn_CPU(Rhost, Ghost, Rhostout, Ghostout, Bhostout, Bhost, kernel, M, N);
 
 	/*
 	 *  Parte GPU
@@ -314,7 +305,7 @@ int main(int argc, char **argv){
 
  //    cudaFree(R); cudaFree(G); cudaFree(B);
 	// cudaFree(Rout); cudaFree(Gout); cudaFree(Bout);
-	delete[] Rhost; delete[] Ghost; delete[] Bhost; free(kernels);
-	// delete[] Rhostout; delete[] Ghostout; delete[] Bhostout;
+	delete[] Rhost; delete[] Ghost; delete[] Bhost;
+	delete[] Rhostout; delete[] Ghostout; delete[] Bhostout;
 	return 0;
 }
