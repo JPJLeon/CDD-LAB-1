@@ -187,12 +187,11 @@ void PoolingCPU(float **out, int *M, int *N){
 
 void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float *Bhostout, float *Bhost, float *kernel, int M, int N){
 	float *output_image = new float[M*N]; // Conjunto de imagenes(matrices) de salida por kernel
-	int M_initial, N_initial;
 	printf("Matriz original: %d x %d\n", M, N);
 	// ShowMatrix(Rhost, M, N);
 	// Por cada proceso de convolucion
-    for(int c=0; c<8; c++){
-    	printf("########## Convolucion %d ###########\n\n", c+1);
+    for(int c=0; c<2; c++){
+    	printf("\n########## Convolucion %d ###########\n", c+1);
 		// Actualizamos N,M si aun se puede
 		if(N - l_kernel + 1 > 0 && M - l_kernel + 1 > 0){
 			printf("M: %d N: %d\n", M, N);
@@ -253,7 +252,7 @@ int main(int argc, char **argv){
 	// cudaEvent_t ct1, ct2;
 
     // Lectura de archivo
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 0);
 	kernel = &array[0];
 	printf("Kernel:\n");
 	ShowMatrix(kernel, l_kernel, l_kernel);
