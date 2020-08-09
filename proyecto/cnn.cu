@@ -74,14 +74,6 @@ void ShowMatrix(float *matrix, int N, int M) {
     printf("\n");
 }
 
-void norm_imgCPU(float *R, float **out, int M, int N){
-	float* norm = new float[M*N];
-	for(int i=0; i < M*N; i++){
-		norm[i] = R[i]/250.0;
-	}
-	*out = norm;
-}
-
 /*
  *  "Producto" Matricial sub_A * kernel = C
  *  id: id del primer elemento de la submatriz, N: ancho matriz R
@@ -202,8 +194,6 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 		}
 		// Si es el primero se suman las matrices RGB resultantes
 		if(c == 0){
-			// Normalizar imagen (dividir por 250)
-			norm_imgCPU(Rhost, &Rhost, 3*(M - 1), 3*(N - 1));
 			// ShowMatrix(Rhost, 3*(M - 1), 3*(N - 1));
 			ConvolucionCPU(Rhost, &output_image, kernel, M, N, 0);
 		} else {

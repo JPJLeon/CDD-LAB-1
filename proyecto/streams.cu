@@ -170,7 +170,7 @@ int main(int argc, char **argv){
   cudaEvent_t ct1, ct2;
 
   // Lectura de archivo
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 0);
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
 	int Mres = M/l_kernel;
 	int Nres = N/l_kernel;
 	Rhostout = new float[Mres*Nres];
