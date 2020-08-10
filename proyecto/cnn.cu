@@ -169,8 +169,7 @@ void PoolingCPU(float **out, int *M, int *N){
 			if(new_M == 1 || i != new_M-1){
 				v3 = (*out)[j*2 + (i+1)*(*N)];
 			}
-			max = MaxCPU(MaxCPU(v1, v2), MaxCPU(v3, v4));
-			temp[j + i*new_N] = max;
+			temp[j + i*new_N] = MaxCPU(MaxCPU(v1, v2), MaxCPU(v3, v4));
 		}
 	}
 	*out = temp;
