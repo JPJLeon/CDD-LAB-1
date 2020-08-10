@@ -324,7 +324,6 @@ __global__ void kernel_convolucionAoS(float *in, float *out, float *kernel_dev, 
 		}
 		// printf("%f\n", suma);
 		out[tid] = suma;
-		
 	}
 }
 
@@ -404,11 +403,12 @@ void AoS_GPU(){
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
 	printf("Imagen salida: %d x %d\n", Mres, Nres);
-	// int N_original = Nres;
-	// Nres = Nres/2;
-	// Mres = Mres/2;
-	// gs = (int)ceil((float) Mres*Nres / bs);
-	// kernel_poolingAoS<<<gs, bs>>>(Rdev_out, Rdev_in, Mres, Nres, N_original);
+	int N_original = Nres;
+	Nres = Nres/2;
+	Mres = Mres/2;
+	gs = (int)ceil((float) Mres*Nres / bs);
+	Rdev_in = Rdev_out;
+	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
 
 	cudaEventRecord(ct2);
 	cudaEventSynchronize(ct2);
