@@ -90,55 +90,6 @@ void ShowMatrix(float *matrix, int N, int M) {
 }
 
 /*
- *  "Producto" Matricial sub_A * kernel = C
- *  id: id del primer elemento de la submatriz, N: ancho matriz R
- */
-float Product_Matrix(float *A, float *B, int N_original, int id){
-	int col, row, idx_kernel;
-	float count;
-	col = id%N_original;
-	row = id/N_original;
-	count = 0.0;
-	// Recorremos stride
-	idx_kernel = 0;
-	for(int i=row; i < row + l_kernel; i++){
-		for(int j=col; j< col + l_kernel; j++){
-			int id_casilla = j + i*N_original;
-			// printf("%.1f x %.1f\n", A[id_casilla], B[idx_kernel]);
-			count += A[id_casilla] * B[idx_kernel];
-			idx_kernel += 1;
-		}
-	}
-	return count;
-}
-
-/*
- *  Convolucion de A y kernel (recorre la primera matriz y hace el producto matricial por cada elemento)
- */
-void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N){
-	float* temp = new float[N*M];
-	int N_original;
-	if(stride == 1){
-		N_original = N + l_kernel - 1;
-	} else{
-		N_original = N*stride;
-	}
-
-	int count_output = 0;
-	for(int i=0; i < N_original*N_original; i=i+stride){
-		// printf("id: %d\n", id);
-		if(i%N_original < N && i/N_original < N && stride == 1){
-			// printf("i: %d out:%d\n", i, count_output);
-			temp[count_output] = Product_Matrix(A, kernel, N_original, i);
-			count_output++;
-		} else if(i%N_original < N && i/N_original < N && stride > 1){
-
-		}
-	}
-	*out = temp;
-}
-
-/*
  *  Suma de Matrices R,G,B y Funcion de activacion RELU
  */
 void SumaMatrizCPU(float **out, float *R, float *G, float *B, int M, int N){
@@ -186,11 +137,55 @@ void PoolingCPU(float **out, int *M, int *N){
 	*N = new_N; *M = new_M;
 }
 
+/*
+ *  "Producto" Matricial sub_A * kernel = C
+ *  id: id del primer elemento de la submatriz, N: ancho matriz R
+ */
+float Product_Matrix(float *A, float *B, int N_original, int id){
+	int col, row, idx_kernel;
+	float count;
+	col = id%N_original;
+	row = id/N_original;
+	count = 0.0;
+	// Recorremos stride
+	idx_kernel = 0;
+	for(int i=row; i < row + l_kernel; i++){
+		for(int j=col; j< col + l_kernel; j++){
+			int id_casilla = j + i*N_original;
+			// printf("%.1f x %.1f\n", A[id_casilla], B[idx_kernel]);
+			count += A[id_casilla] * B[idx_kernel];
+			idx_kernel += 1;
+		}
+	}
+	return count;
+}
+
+/*
+ *  Convolucion de A y kernel (recorre la primera matriz y hace el producto matricial por cada elemento)
+ */
+void ConvolucionCPU(float *A, float **out, float *kernel, int Mres, int Nres, int N_original){
+	float* temp = new float[Nres*Mres];
+	int count_output = 0;
+	int i = 0;
+	while(i < N_original*(N_original-1)){
+		if((i/N_original)%2 == 0){
+			temp[count_output] = Product_Matrix(A, kernel, N_original, i);
+			// printf("i: %d out:%d\n", i, count_output);
+			// printf("fila: %d\n", (i/N_original));
+			count_output++;
+			i = i+stride;
+		} else{
+			i = i+N_original;
+		}
+	}
+	*out = temp;
+}
+
 void cnn_CPU(){
 	int M, N;
 	clock_t t1, t2;
 	double ms;
-	float array[l_kernel*l_kernel] = {0, 1, -4, 1}; // Conjunto de kernel(matrices) a usar
+	float array[l_kernel*l_kernel] = {1, 0, 1, -2}; // Conjunto de kernel(matrices) a usar
 	// float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
 	// float array[l_kernel*l_kernel] = {-5, 5, 0, -5, 5, 0,-5, 5, 0}; // Conjunto de kernel(matrices) a usar
 	// float array[l_kernel*l_kernel] = {-5, -5, -5, 5, 5, 5, 0, 0, 0}; // Conjunto de kernel(matrices) a usar
@@ -204,45 +199,36 @@ void cnn_CPU(){
 	ShowMatrix(kernel, l_kernel, l_kernel);
 
 	float *output_image; // Conjunto de imagenes(matrices) de salida por kernel
-	// printf("Matriz original: %d x %d\n", M, N);
+	printf("Matriz original: %d x %d\n", M, N);
 	t1 = clock();
 	// ShowMatrix(Rhost, M, N);
 	// Por cada proceso de convolucion
     for(int c=0; c<1; c++){
     	// printf("\n########## Convolucion %d ###########\n", c+1);
 		// Actualizamos N,M si aun se puede
-		// if(N/3 > 0 && M/3 > 0){
-			// printf("M: %d N: %d\n", M, N);
-			if(stride == 1){
-				N = N - l_kernel + 1;
-				M = M - l_kernel + 1;
-			} else{
-				N = N/stride;
-				M = M/stride;
-			}
-		// } else{
-		// 	continue;
-		// }
+		int N_original = N;
+		printf("M: %d N: %d\n", M, N);
+		N = N/stride;
+		M = M/stride;
 		// Si es el primero se suman las matrices RGB resultantes
 		if(c == 0){
 			// ShowMatrix(Rhost, M + l_kernel -1, N + l_kernel -1);
-			ConvolucionCPU(Rhost, &Rhostout, kernel, M, N);
-			ConvolucionCPU(Ghost, &Ghostout, kernel, M, N);
-			ConvolucionCPU(Bhost, &Bhostout, kernel, M, N);
+			ConvolucionCPU(Rhost, &Rhostout, kernel, M, N, N_original);
+			ConvolucionCPU(Ghost, &Ghostout, kernel, M, N, N_original);
+			ConvolucionCPU(Bhost, &Bhostout, kernel, M, N, N_original);
 			// ShowMatrix(Rhostout, M, N);
-			// ShowMatrix(Ghostout, M, N);
-			// ShowMatrix(Bhostout, M, N);
 			SumaMatrizCPU(&output_image, Rhostout, Ghostout, Bhostout, M, N);
 		} else {
 			// ShowMatrix(output_image, stride*M, stride*N);
-			ConvolucionCPU(output_image, &output_image, kernel, M, N);
+			ConvolucionCPU(output_image, &output_image, kernel, M, N, N_original);
 		}
-		// printf("Matriz Convolucion %d: %d x %d\n", c+1, M, N);
+		printf("Matriz Convolucion %d: %d x %d\n", c+1, M, N);
 		// ShowMatrix(output_image, M, N);
     }
 
 	ReluCPU(output_image, M, N);
-    PoolingCPU(&output_image, &M, &N);
+    // PoolingCPU(&output_image, &M, &N);
+    // printf("Matriz Pooling: %d x %d\n", M, N);
 
     t2 = clock();
     ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
@@ -291,8 +277,8 @@ __global__ void kernel_poolingAoS(float *in, float *out, int Mres, int Nres, int
 		float valores[4] = {
 			in[x*2 + y*2*(N_original)],
 			in[x*2 + 1 + y*2*(N_original)],
-			in[x*2 + (y*2+1)*(N_original)],
-			in[x*2 + 1 + (y*2+1)*(N_original)]
+			in[x*2 + (y+1)*(N_original)],
+			in[x*2 + 1 + (y+1)*(N_original)]
 		};
 		for (int i = 0; i< 4; i++){
 			if (valores[i] > max){
@@ -310,14 +296,11 @@ __global__ void kernel_convolucionAoS(float *in, float *out, float *kernel_dev, 
 		x = 1 + tid%Nres; //coordenaas del centro de cada sub_matriz
 		y = 1 + tid/Nres;
 		N_original = Nres*2;
-		if(stride == 1){
-			N_original = Nres+l_kernel-1;
-		}
 		float suma = 0;
 		int indice_sub_matriz, indice_kernel;
 		for (int i = -1; i<=1 ; i++){
 			for (int j = -1; j <= 1; j++){
-				indice_sub_matriz = (x+i)*stride + (y+j)*(N_original);
+				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
 				indice_kernel = (1+i) + (1+j)*3;
 				suma += in[indice_sub_matriz] * kernel_dev[indice_kernel];
 			}
@@ -498,7 +481,7 @@ int main(int argc, char **argv){
 	/*
 	 *  Parte GPU
 	 */
-	AoS_GPU();
+	AoS_GPU(); 
 
 	/*
 	 *  Memoria Global
