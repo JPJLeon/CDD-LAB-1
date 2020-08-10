@@ -32,10 +32,10 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
 	
 	float* R1, * G1, * B1;
 
+    R1 = new float[imsize];
+	G1 = new float[imsize];
+	B1 = new float[imsize];
     if (tipo == 0){ // Lectura normal
-    	R1 = new float[imsize];
-		G1 = new float[imsize];
-		B1 = new float[imsize];
 		for(int i = 0; i < imsize; i++)
 		    fscanf(fp, "%f ", &(R1[i]));
 		for(int i = 0; i < imsize; i++)
@@ -43,10 +43,8 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
 		for(int i = 0; i < imsize; i++)
 		    fscanf(fp, "%f ", &(B1[i]));
 	}
-	else if (tipo == 3){ //lectura en pinned memory
-		cudaMallocHost(&R1, sizeof(float)* imsize);
-		cudaMallocHost(&G1, sizeof(float)* imsize);
-		cudaMallocHost(&B1, sizeof(float)* imsize);
+
+	else if (tipo == 1){ //lectura SoA
 		for(int i = 0; i < imsize; i++)
 		    fscanf(fp, "%f ", &(R1[i]));
 		for(int i = 0; i < imsize; i++)
@@ -77,10 +75,35 @@ void Write(float* out, int M_out, int N_out, const char *filename) {
     fclose(fp);
 }
 
+void Write_SoA(float* out, int M_out, int N_out, const char *filename) {
+    FILE *fp;
+    fp = fopen(filename, "w");
+    fprintf(fp, "%d %d\n", M_out, N_out);
+    for(int i = 0; i < M_out*N_out-1; i++)
+        fprintf(fp, "%f ", out[i]);
+    fprintf(fp, "%f\n", out[M_out*N_out-1]);
+    for(int i = 0; i < M_out*N_out-1; i++)
+        fprintf(fp, "%f ", out[i]);
+    fprintf(fp, "%f\n", out[M_out*N_out-1]);
+    for(int i = 0; i < M_out*N_out-1; i++)
+        fprintf(fp, "%f ", out[i]);
+    fprintf(fp, "%f\n", out[M_out*N_out-1]);
+    fclose(fp);
+}
+
 /*
  *  Imprimir Array como matriz
  */
 void ShowMatrix(float *matrix, int N, int M) {
+    for(int i = 0; i < N; i++){
+    	for(int j = 0; j < M; j++)
+    		printf("%.4f ", matrix[j + i*M]);
+    	printf("\n");
+    }
+    printf("\n");
+}
+
+void ShowMatrix_SoA(float *matrix, int N, int M) {
     for(int i = 0; i < N; i++){
     	for(int j = 0; j < M; j++)
     		printf("%.4f ", matrix[j + i*M]);
@@ -336,6 +359,134 @@ __global__ void kernel_convolucion_AoS_MC(float *in, float *out, int Mres, int N
 		// printf("%f\n", suma);
 		out[tid] = suma;
 	}
+}
+
+__global__ void kernel_pooling_SoA(float *in, float *out, int Mres, int Nres, int N_original){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if(tid < Nres*Mres){ //1 thread para cada pixel de salida
+		float max = 0.0;
+		int x, y, col = 0;
+		x = (tid%Nres);
+		y = (tid/Nres);
+
+		// Si N_original es impar, el pooling del borde se almacena con este thread
+		if(!N_original%2 && x+1 == N_original-1){
+			col = tid%Mres;
+		}
+		float valores[4] = {
+			in[x*2 + y*2*(N_original)],
+			in[x*2 + 1 + y*2*(N_original)],
+			in[x*2 + (y+1)*(N_original)],
+			in[x*2 + 1 + (y+1)*(N_original)]
+		};
+		for (int i = 0; i< 4; i++){
+			if (valores[i] > max){
+				max = valores[i];
+			}
+		}
+		out[tid - col] = max;
+	}
+}
+
+/*
+ *  Procesamiento SoA GPU
+ */
+void SoA_GPU(){
+	//procesamiento de las convoluciones con 3 streams, 1 por cada color
+	cudaEvent_t ct1, ct2;	
+	float dt;
+
+	int M, N, Mres, Nres;
+	int gs, bs = 256;
+	float array[l_kernel*l_kernel] = {1, 0, 1, -2};
+	// float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
+	float *kernel = new float[l_kernel*l_kernel];
+	kernel = &array[0];
+
+    float *Rhost, *Ghost, *Bhost, *hostout;
+    float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out, *kernel_dev;
+
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	if(stride == 1){
+		Mres = M - l_kernel + 1;
+		Nres = N - l_kernel + 1;
+	} else{
+		Mres = M/2;
+		Nres = N/2;
+	}
+	gs = (int)ceil((float) Mres*Nres / bs);
+
+	// kernel gpu
+	cudaMalloc((void**)&kernel_dev, l_kernel * l_kernel * sizeof(float));
+
+	// Arrays de entrada
+	cudaMalloc((void**)&Rdev_in, M * N * sizeof(float));
+    cudaMalloc((void**)&Gdev_in, M * N * sizeof(float));
+    cudaMalloc((void**)&Bdev_in, M * N * sizeof(float));
+    
+    // Array de salida
+    cudaMalloc((void**)&Rdev_out, Mres * Nres * sizeof(float));
+    cudaMalloc((void**)&Gdev_out, Mres * Nres * sizeof(float));
+    cudaMalloc((void**)&Bdev_out, Mres * Nres * sizeof(float));
+    
+    // Copiar en memoria global de GPU
+	cudaMemcpy(Rdev_in, Rhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(Gdev_in, Ghost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(Bdev_in, Bhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(kernel_dev, kernel, l_kernel * l_kernel * sizeof(float), cudaMemcpyHostToDevice);
+
+	cudaEventCreate(&ct1);
+	cudaEventCreate(&ct2);
+	cudaEventRecord(ct1);
+
+	//kernel calls
+	for(int c=0; c<1; c++){
+		if(c == 0){
+			//convolucion
+			kernel_convolucionAoS<<<gs, bs>>>(Rdev_in, Rdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionAoS<<<gs, bs>>>(Gdev_in, Gdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionAoS<<<gs, bs>>>(Bdev_in, Bdev_out, kernel_dev, Mres, Nres);
+			// Unir canales
+			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
+		} else{
+			if(stride == 1){
+				Mres = M - l_kernel + 1;
+				Nres = N - l_kernel + 1;
+			} else{
+				Mres = Mres/2;
+				Nres = Nres/2;
+			}
+			gs = (int)ceil((float) Mres*Nres / bs);
+			//convolucion
+			kernel_convolucionAoS<<<gs, bs>>>(Rdev_out, Rdev_out, kernel_dev, Mres, Nres);
+		}
+	}
+	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
+	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	int N_original = Nres;
+	Nres = Nres/2;
+	Mres = Mres/2;
+	gs = (int)ceil((float) Mres*Nres / bs);
+	Rdev_in = Rdev_out;
+	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
+
+	cudaEventRecord(ct2);
+	cudaEventSynchronize(ct2);
+	cudaEventElapsedTime(&dt, ct1, ct2);
+
+	hostout = new float[Mres*Nres];
+	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
+	
+	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	// ShowMatrix(hostout, Mres, Nres);
+
+	Write(hostout, Mres, Nres, "ResultadoAoS.txt\0");
+
+	std::cout << "Tiempo AoS" << ": " << dt << "[ms]" << std::endl;
+	cudaFree(Rdev_in); cudaFree(Gdev_in); cudaFree(Bdev_in);
+	cudaFree(Rdev_out); cudaFree(Gdev_out); cudaFree(Bdev_out);
+	delete[] Rhost; delete[] Ghost; delete[] Bhost;
+	delete[] hostout;
 }
 
 /*
@@ -602,11 +753,13 @@ int main(int argc, char **argv){
 	/*
      *  Parte CPU
      */
-	cnn_CPU();
+	//cnn_CPU();
 
 	/*
 	 *  Parte GPU
 	 */
+	//AoS_GPU(); 
+	SoA_GPU();
 
 	AoS_GPU(); // Con Memoria Global
 	AoS_MC_GPU(); // Con Memoria Compartida
