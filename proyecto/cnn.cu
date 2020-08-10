@@ -83,7 +83,7 @@ void Write(float* out, int M_out, int N_out, const char *filename) {
 void ShowMatrix(float *matrix, int N, int M) {
     for(int i = 0; i < N; i++){
     	for(int j = 0; j < M; j++)
-    		printf("%.1f ", matrix[j + i*M]);
+    		printf("%.2f ", matrix[j + i*M]);
     	printf("\n");
     }
     printf("\n");
@@ -104,9 +104,6 @@ float Product_Matrix(float *A, float *B, int N_original, int id){
 	for(int i=row; i < row + l_kernel; i++){
 		for(int j=col; j< col + l_kernel; j++){
 			int id_casilla = j + i*N_original;
-			if(id == 0){
-				printf("id: %d\n",id_casilla);
-			}
 			// printf("%.1f x %.1f\n", A[id_casilla], B[idx_kernel]);
 			count += A[id_casilla] * B[idx_kernel];
 			idx_kernel += 1;
@@ -140,23 +137,21 @@ void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N){
 	*out = temp;
 }
 
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
+// 1 1 1 1 1 1 1 1
 
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
-// 1 1 1 1 1 1 1
+// 1 1 1 1 1 1
+// 1 1 1 1 1 1
+// 1 1 1 1 1 1
+// 1 1 1 1 1 1
+// 1 1 1 1 1 1
+// 1 1 1 1 1 1
 
 /*
  *  Suma de Matrices R,G,B y Funcion de activacion RELU
@@ -206,7 +201,20 @@ void PoolingCPU(float **out, int *M, int *N){
 	*N = new_N; *M = new_M;
 }
 
-void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float *Bhostout, float *Bhost, float *kernel, int M, int N){
+void cnn_CPU(){
+	int M, N;
+	float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
+	// float array[l_kernel*l_kernel] = {-5, 5, 0, -5, 5, 0,-5, 5, 0}; // Conjunto de kernel(matrices) a usar
+	// float array[l_kernel*l_kernel] = {-5, -5, -5, 5, 5, 5, 0, 0, 0}; // Conjunto de kernel(matrices) a usar
+	float *kernel = new float[l_kernel*l_kernel];
+    float *Rhost, *Ghost, *Bhost;
+    float *Rhostout, *Ghostout, *Bhostout;
+    // Lectura de archivo
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	kernel = &array[0];
+	printf("Kernel:\n");
+	ShowMatrix(kernel, l_kernel, l_kernel);
+
 	float *output_image; // Conjunto de imagenes(matrices) de salida por kernel
 	printf("Matriz original: %d x %d\n", M, N);
 	// ShowMatrix(Rhost, M, N);
@@ -233,7 +241,9 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 			ConvolucionCPU(Ghost, &Ghostout, kernel, M, N);
 			ConvolucionCPU(Bhost, &Bhostout, kernel, M, N);
 			// ShowMatrix(Rhostout, M, N);
-			SumaMatrizCPU(&output_image, Rhost, Ghost, Bhost, M, N);
+			// ShowMatrix(Ghostout, M, N);
+			// ShowMatrix(Bhostout, M, N);
+			SumaMatrizCPU(&output_image, Rhostout, Ghostout, Bhostout, M, N);
 		} else {
 			// ShowMatrix(output_image, stride*M, stride*N);
 			ConvolucionCPU(output_image, &output_image, kernel, M, N);
@@ -241,15 +251,17 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 		printf("Matriz Convolucion %d: %d x %d\n", c+1, M, N);
 		// ShowMatrix(output_image, M, N);
     }
- //    if(M*N > 3){
-	// 	PoolingCPU(&output_image, &M, &N);
-	// 	printf("Imagen pooling: %d x %d\n", M, N);
-		// ShowMatrix(output_image, M, N);
-	// }
+
+ //    PoolingCPU(&output_image, &M, &N);
+	// printf("Imagen pooling: %d x %d\n", M, N);
+	// ShowMatrix(output_image, M, N);
 	ReluCPU(output_image, M, N);
+
     printf("Imagen salida: %d x %d\n", M, N);
 	// ShowMatrix(output_image, M, N);
 	Write(output_image, M, N, "ResultadoCPU.txt");
+	delete[] Rhost; delete[] Ghost; delete[] Bhost;
+	delete[] Rhostout; delete[] Ghostout; delete[] Bhostout, delete[] output_image;
 }
 
 /*
@@ -313,35 +325,10 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 // }
 int main(int argc, char **argv){
 
-    /*
-     *  Inicializacion
-     */
-	int M, N;
-	float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
-	float *kernel = new float[l_kernel*l_kernel];
-    float *Rhost, *Ghost, *Bhost;
-    float *Rhostout, *Ghostout, *Bhostout;
-
-    Rhostout = new float[l_kernel*l_kernel];
-    Ghostout = new float[l_kernel*l_kernel];
-    Bhostout = new float[l_kernel*l_kernel];
-
-    // float *R, *G, *B;
-    // float *Rout, *Gout, *Bout;
-	// int gs = 1, bs = 1024;
-	// float dt;
-	// cudaEvent_t ct1, ct2;
-
-    // Lectura de archivo
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 0);
-	kernel = &array[0];
-	printf("Kernel:\n");
-	ShowMatrix(kernel, l_kernel, l_kernel);
-
 	/*
      *  Parte CPU
      */
-	cnn_CPU(Rhost, Ghost, Rhostout, Ghostout, Bhostout, Bhost, kernel, M, N);
+	cnn_CPU();
 
 	/*
 	 *  Parte GPU
@@ -387,7 +374,5 @@ int main(int argc, char **argv){
 
  //    cudaFree(R); cudaFree(G); cudaFree(B);
 	// cudaFree(Rout); cudaFree(Gout); cudaFree(Bout);
-	delete[] Rhost; delete[] Ghost; delete[] Bhost;
-	delete[] Rhostout; delete[] Ghostout; delete[] Bhostout;
 	return 0;
 }
