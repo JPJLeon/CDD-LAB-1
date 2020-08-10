@@ -105,10 +105,10 @@ void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N, int id_k
 	for(int i=0; i < M; i++){
 		for(int j=0; j < N; j++){
 			// id del primer elemento de la submatriz
-			int id = j + i*3*(N-1);
+			int id = j + i*3*N;
 			// printf("id: %d\n", id);
 			int new_id = j + i*N;
-			temp[new_id] = Product_Matrix(A, kernel, N + l_kernel - 1, id);
+			temp[new_id] = Product_Matrix(A, kernel, N*3, id);
 		}
 	}
 	*out = temp;
@@ -117,10 +117,10 @@ void ConvolucionCPU(float *A, float **out, float *kernel, int M, int N, int id_k
 /*
  *  Suma de Matrices R,G,B y Funcion de activacion RELU
  */
-void SumaMatrizCPU(float **out, float *R, int M, int N){
+void SumaMatrizCPU(float **out, float *R, float *G, float *B, int M, int N){
 	float* sum = new float[M*N];
 	for(int i=0; i < M*N; i++){
-		sum[i] =  MaxCPU(R[i], 0.0);
+		sum[i] = R[i]+G[i]+B[i];
 	}
 	*out = sum;
 }
@@ -182,22 +182,25 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 	printf("Matriz original: %d x %d\n", M, N);
 	// ShowMatrix(Rhost, M, N);
 	// Por cada proceso de convolucion
-    for(int c=0; c<2; c++){
+    for(int c=0; c<3; c++){
     	printf("\n########## Convolucion %d ###########\n", c+1);
 		// Actualizamos N,M si aun se puede
-		if(N - l_kernel + 1 > 0 && M - l_kernel + 1 > 0){
+		if(N/3 > 0 && M/3 > 0){
 			printf("M: %d N: %d\n", M, N);
-			N = N/3 + 1;
-			M = M/3 + 1;
+			N = N/3;
+			M = M/3;
 		} else{
 			continue;
 		}
 		// Si es el primero se suman las matrices RGB resultantes
 		if(c == 0){
-			// ShowMatrix(Rhost, 3*(M - 1), 3*(N - 1));
-			ConvolucionCPU(Rhost, &output_image, kernel, M, N, 0);
+			// ShowMatrix(Rhost, 3*M, 3*N);
+			ConvolucionCPU(Rhost, &Rhostout, kernel, M, N, 0);
+			ConvolucionCPU(Ghost, &Ghostout, kernel, M, N, 0);
+			ConvolucionCPU(Bhost, &Bhostout, kernel, M, N, 0);
+			SumaMatrizCPU(&output_image, Rhost, Ghost, Bhost, M, N);
 		} else {
-			// ShowMatrix(output_image, 3*(M - 1), 3*(N - 1));
+			// ShowMatrix(output_image, 3*M, 3*N);
 			ConvolucionCPU(output_image, &output_image, kernel, M, N, 0);
 		}
 		// ReluCPU(&output_image, M, N);
@@ -226,8 +229,8 @@ int main(int argc, char **argv){
      *  Inicializacion
      */
 	int M, N;
-	float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
-	float *kernel = new float[l_kernel*l_kernel];
+	float kernel[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
+	// float *kernel = new float[l_kernel*l_kernel];
     float *Rhost, *Ghost, *Bhost;
     float *Rhostout, *Ghostout, *Bhostout;
 
@@ -242,8 +245,8 @@ int main(int argc, char **argv){
 	// cudaEvent_t ct1, ct2;
 
     // Lectura de archivo
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 0);
-	kernel = &array[0];
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	// kernel = &array[0];
 	printf("Kernel:\n");
 	ShowMatrix(kernel, l_kernel, l_kernel);
 
