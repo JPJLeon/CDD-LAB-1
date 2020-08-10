@@ -27,9 +27,11 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
     fscanf(fp, "%d %d\n", M, N);
 
     int imsize = (*M) * (*N);
-    float* R1 = new float[imsize];
-    float* G1 = new float[imsize];
-    float* B1 = new float[imsize];
+	if (tipo != 1){
+    	float* R1 = new float[imsize];
+    	float* G1 = new float[imsize];
+    	float* B1 = new float[imsize];
+	}
 
     if (tipo == 0){ // Lectura normal
 		for(int i = 0; i < imsize; i++)
@@ -38,6 +40,18 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
 		    fscanf(fp, "%f ", &(G1[i]));
 		for(int i = 0; i < imsize; i++)
 		    fscanf(fp, "%f ", &(B1[i]));
+	}
+	else if (tipo == 1){ //lectura en pinned memory
+		cudaMallocHost(&R1, sizeof(float)* imsize);
+		cudaMallocHost(&G1, sizeof(float)* imsize);
+		cudaMallocHost(&B1, sizeof(float)* imsize);
+		for(int i = 0; i < imsize; i++)
+		    fscanf(fp, "%f ", &(R1[i]));
+		for(int i = 0; i < imsize; i++)
+		    fscanf(fp, "%f ", &(G1[i]));
+		for(int i = 0; i < imsize; i++)
+		    fscanf(fp, "%f ", &(B1[i]));
+
 	}
     fclose(fp);
     *R = R1; *G = G1; *B = B1;
@@ -220,6 +234,58 @@ void cnn_CPU(float *Rhost, float *Ghost, float *Rhostout, float *Ghostout, float
 /*
  *  Codigo Principal
  */
+
+void streams (){
+	//procesamiento de las convoluciones con 3 streams, 1 por cada color
+	cudaEvent_t ct1, ct2;	
+	float dt;
+
+	int M, N;
+	int gs, bs = 256;
+
+	float kernel[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
+    float *Rhost, *Ghost, *Bhost;
+    float *Rhostout;
+
+    Rhostout = new float[l_kernel*l_kernel];
+
+	//crear streams
+	cudaStream_t str1, str2, str3;
+	cudaStreamCreate(&str1);
+	cudaStreamCreate(&str2);
+	cudaStreamCreate(&str3);
+
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 1);
+	//gs = (int)ceil((float) (M/3) / bs);   
+
+	cudaMemcpyAsync(&f_in[size*0], &f_host[size*0], size * sizeof(float), cudaMemcpyHostToDevice, str1);
+	cudaMemcpyAsync(&f_in[size*1], &f_host[size*1], size * sizeof(float), cudaMemcpyHostToDevice, str2);
+	cudaMemcpyAsync(&f_in[size*2], &f_host[size*2], size * sizeof(float), cudaMemcpyHostToDevice, str3); 
+
+	//kernel calls
+	cudaEventCreate(&ct1);
+	cudaEventCreate(&ct2);
+	cudaEventRecord(ct1);
+
+	//convolucion
+	//juntar canales
+	//max pooling
+
+	cudaEventRecord(ct2);
+	cudaEventSynchronize(ct2);
+	cudaEventElapsedTime(&dt, ct1, ct2);
+
+	//solo se copia un canal al host, ya que los 3 canales son iguales
+	cudaMemcpyAsync(&out[size*0], &f_in[size*0], size * sizeof(float), cudaMemcpyDeviceToHost,str1);
+
+	cudaDeviceSynchronize();
+	//Write(out, M, N, "initial_S.txt\0");
+	//imprimir_malla(out, N,M);
+	std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
+	cudaFree(f_host);
+	cudaFree(f_in);
+	cudaFree(f_out);
+}
 int main(int argc, char **argv){
 
     /*
@@ -286,6 +352,12 @@ int main(int argc, char **argv){
 	/*
 	 *  Memoria Compartida
 	 */
+
+	/*
+	 * Streams
+	 */
+
+
 
 
  //    cudaFree(R); cudaFree(G); cudaFree(B);
