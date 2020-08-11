@@ -27,10 +27,14 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
     FILE *fp;
     fp = fopen(filename, "r");
     fscanf(fp, "%d %d\n", M, N);
-
     int imsize = (*M) * (*N);
-	
+	int Mres, Nres, X, Y;
 	float* R1, * G1, * B1;
+
+	Mres = (*M) / stride;
+	Nres = (*N) / stride;
+	X = stride;
+	Y = stride;
 
     R1 = new float[imsize];
 	G1 = new float[imsize];
@@ -45,12 +49,22 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
 	}
 
 	else if (tipo == 1){ //lectura SoA
-		for(int i = 0; i < imsize; i++)
-		    fscanf(fp, "%f ", &(R1[i]));
-		for(int i = 0; i < imsize; i++)
-		    fscanf(fp, "%f ", &(G1[i]));
-		for(int i = 0; i < imsize; i++)
-		    fscanf(fp, "%f ", &(B1[i]));
+		for(int  jj = 0; jj < Mres; jj++)
+            for(int j = 0; j < Y; j++)
+                for(int ii = 0; ii < Nres; ii++)
+                    for(int i = 0; i < X; i++)
+                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
+                        printf("%d ", (i + j * X) * (Mres*Nres) + (ii + jj * Nres));
+        for(int  jj = 0; jj < Mres; jj++)
+            for(int j = 0; j < Y; j++)
+                for(int ii = 0; ii < Nres; ii++)
+                    for(int i = 0; i < X; i++)
+                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
+        for(int  jj = 0; jj < Mres; jj++)
+            for(int j = 0; j < Y; j++)
+                for(int ii = 0; ii < Nres; ii++)
+                    for(int i = 0; i < X; i++)
+                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
 	}
     fclose(fp);
     *R = R1; *G = G1; *B = B1;
