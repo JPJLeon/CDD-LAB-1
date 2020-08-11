@@ -440,7 +440,7 @@ void SoA_MCOMP_GPU(){
 	float *Rhost, *Ghost, *Bhost, *hostout;
 	float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out;
 
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 1);
 	Mres = M/2;
 	Nres = N/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
@@ -497,12 +497,12 @@ void SoA_MCOMP_GPU(){
 	hostout = new float[Mres*Nres];
 	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
 	
-	//printf("Imagen salida: %d x %d\n", Mres, Nres);
+	printf("Imagen salida SoA_MCOMP: %d x %d\n", Mres, Nres);
 	// ShowMatrix(hostout, Mres, Nres);
 
-	Write(hostout, Mres, Nres, "Resultado_AoS_MCOMP.txt\0");
+	Write(hostout, Mres, Nres, "Resultado_SoA_MCOMP.txt\0");
 
-	std::cout << "Tiempo AoS con MCOMP" << ": " << dt << "[ms]" << std::endl;
+	std::cout << "Tiempo SoA con MCOMP" << ": " << dt << "[ms]" << std::endl;
 	cudaFree(Rdev_in); cudaFree(Gdev_in); cudaFree(Bdev_in);
 	cudaFree(Rdev_out); cudaFree(Gdev_out); cudaFree(Bdev_out);
 	delete[] Rhost; delete[] Ghost; delete[] Bhost;
@@ -512,25 +512,18 @@ void SoA_MCOMP_GPU(){
 /* 
  * Memoria constante SoA
  */
-__constant__ int kernel_const[4];
+__constant__ float kernel_const[4];
 __global__ void kernel_convolucion_SoA_MCONST(float *in, float *out, int Mres, int Nres){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if (tid < Mres*Nres){
-		int x, y, N_original;
-		x = 1 + tid%Nres; //coordenaas del centro de cada sub_matriz
-		y = 1 + tid/Nres;
-		N_original = Nres*2;
-		float suma = 0;
-		int indice_sub_matriz, indice_kernel;
-		for (int i = -1; i<=1 ; i++){
-			for (int j = -1; j <= 1; j++){
-				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
-				indice_kernel = (1+i) + (1+j)*3;
-				suma += in[indice_sub_matriz] * kernel_const[indice_kernel];
-			}
-		}
-		// printf("%f\n", suma);
-		out[tid] = suma;
+	    float suma = 0.0;
+	    for(int i=0; i<l_kernel*l_kernel; i++){
+	        suma += in[tid + i * Mres* Nres] * kernel_const[i];
+	    }
+	    // Almacenamos como SoA en la imagen de salida
+	    int id = kernel_ordenSoA(tid, Mres/2, Nres/2);
+	    // printf("Mres: %d Nres: %d tid: %d id: %d\n", Mres/2, Nres/2, tid, id);
+	    out[id] = suma;
 	}
 }
 
@@ -548,7 +541,7 @@ void SoA_MCONST_GPU(){
 	float *Rhost, *Ghost, *Bhost, *hostout;
 	float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out;
 
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 1	);
 	
 	Mres = M/2;
 	Nres = N/2;
@@ -568,14 +561,14 @@ void SoA_MCONST_GPU(){
 	cudaMemcpy(Rdev_in, Rhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(Gdev_in, Ghost, M * N * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(Bdev_in, Bhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpyToSymbol(kernel_const[4] , kernel_host , sizeof (float), 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbol(kernel_const, &array, 4 * sizeof(float), 0, cudaMemcpyHostToDevice);
 
 	cudaEventCreate(&ct1);
 	cudaEventCreate(&ct2);
 	cudaEventRecord(ct1);
 
 	//kernel calls
-	for(int c=0; c<1; c++){
+	for(int c=0; c<2; c++){
 		if(c == 0){
 			//convolucion
 			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
@@ -584,13 +577,8 @@ void SoA_MCONST_GPU(){
 			// Unir canales
 			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
 		} else{
-			if(stride == 1){
-				Mres = M - l_kernel + 1;
-				Nres = N - l_kernel + 1;
-			} else{
-				Mres = Mres/2;
-				Nres = Nres/2;
-			}
+			Mres = Mres/2;
+			Nres = Nres/2;
 			gs = (int)ceil((float) Mres*Nres / bs);
 			//convolucion
 			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
@@ -612,12 +600,12 @@ void SoA_MCONST_GPU(){
 	hostout = new float[Mres*Nres];
 	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
 	
-	//printf("Imagen salida: %d x %d\n", Mres, Nres);
+	printf("Imagen salida SoA_MCONST: %d x %d\n", Mres, Nres);
 	// ShowMatrix(hostout, Mres, Nres);
 
-	Write(hostout, Mres, Nres, "Resultado_AoS_MCONST.txt\0");
+	Write(hostout, Mres, Nres, "Resultado_SoA_MCONST.txt\0");
 
-	std::cout << "Tiempo AoS con MCONST" << ": " << dt << "[ms]" << std::endl;
+	std::cout << "Tiempo SoA con MCONST" << ": " << dt << "[ms]" << std::endl;
 	cudaFree(Rdev_in); cudaFree(Gdev_in); cudaFree(Bdev_in);
 	cudaFree(Rdev_out); cudaFree(Gdev_out); cudaFree(Bdev_out);
 	delete[] Rhost; delete[] Ghost; delete[] Bhost;
@@ -793,8 +781,8 @@ int main(int argc, char **argv){
 	// SoA_GPU();
 
 	// Memoria Compartida
-	SoA_MCOMP_GPU(); // Con Memoria Compartida
-  	// SoA_MCONST_GPU(); // Con Memoria Constante
+	// SoA_MCOMP_GPU(); // Con Memoria Compartida
+  	SoA_MCONST_GPU(); // Con Memoria Constante
 
 	return 0;
 }
