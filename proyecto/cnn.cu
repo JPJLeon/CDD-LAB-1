@@ -404,6 +404,27 @@ void SoA_GPU(){
 	delete[] hostout;
 }
 
+__global__ void kernel_convolucion_SoA_MCOMP(float *in, float *out, int Mres, int Nres){
+
+	__shared__ int kernel_local[4];
+	kernel_local[0] = 1;
+	kernel_local[1] = 0;
+	kernel_local[2] = 1;
+	kernel_local[3] = -2;
+
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid < Mres*Nres){
+	    float suma = 0.0;
+	    for(int i=0; i<l_kernel*l_kernel; i++){
+	        suma += in[tid + i * Mres* Nres] * kernel_local[i];
+	    }
+	    // Almacenamos como SoA en la imagen de salida
+	    int id = kernel_ordenSoA(tid, Mres/2, Nres/2);
+	    // printf("Mres: %d Nres: %d tid: %d id: %d\n", Mres/2, Nres/2, tid, id);
+	    out[id] = suma;
+	}
+}
+
 /* 
  * Memoria compartida SoA
  */
@@ -444,25 +465,20 @@ void SoA_MCOMP_GPU(){
 	cudaEventRecord(ct1);
 
 	//kernel calls
-	for(int c=0; c<1; c++){
+	for(int c=0; c<2; c++){
 		if(c == 0){
 			//convolucion
-			kernel_convolucion_AoS_MCOMP<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
-			kernel_convolucion_AoS_MCOMP<<<gs, bs>>>(Gdev_in, Gdev_out, Mres, Nres);
-			kernel_convolucion_AoS_MCOMP<<<gs, bs>>>(Bdev_in, Bdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCOMP<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCOMP<<<gs, bs>>>(Gdev_in, Gdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCOMP<<<gs, bs>>>(Bdev_in, Bdev_out, Mres, Nres);
 			// Unir canales
 			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
 		} else{
-			if(stride == 1){
-				Mres = M - l_kernel + 1;
-				Nres = N - l_kernel + 1;
-			} else{
-				Mres = Mres/2;
-				Nres = Nres/2;
-			}
+			Mres = Mres/2;
+			Nres = Nres/2;
 			gs = (int)ceil((float) Mres*Nres / bs);
 			//convolucion
-			kernel_convolucion_AoS_MCOMP<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCOMP<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
 		}
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
@@ -472,7 +488,7 @@ void SoA_MCOMP_GPU(){
 	Mres = Mres/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
 	Rdev_in = Rdev_out;
-	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
+	kernel_poolingSoA<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
 
 	cudaEventRecord(ct2);
 	cudaEventSynchronize(ct2);
@@ -496,6 +512,28 @@ void SoA_MCOMP_GPU(){
 /* 
  * Memoria constante SoA
  */
+
+__global__ void kernel_convolucion_SoA_MCONST(float *in, float *out, int Mres, int Nres){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid < Mres*Nres){
+		int x, y, N_original;
+		x = 1 + tid%Nres; //coordenaas del centro de cada sub_matriz
+		y = 1 + tid/Nres;
+		N_original = Nres*2;
+		float suma = 0;
+		int indice_sub_matriz, indice_kernel;
+		for (int i = -1; i<=1 ; i++){
+			for (int j = -1; j <= 1; j++){
+				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
+				indice_kernel = (1+i) + (1+j)*3;
+				suma += in[indice_sub_matriz] * kernel_const[indice_kernel];
+			}
+		}
+		// printf("%f\n", suma);
+		out[tid] = suma;
+	}
+}
+
 void SoA_MCONST_GPU(){
 	//procesamiento de las convoluciones con 3 streams, 1 por cada color
 	cudaEvent_t ct1, ct2;	
@@ -544,9 +582,9 @@ void SoA_MCONST_GPU(){
 	for(int c=0; c<1; c++){
 		if(c == 0){
 			//convolucion
-			kernel_convolucion_AoS_MCONST<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
-			kernel_convolucion_AoS_MCONST<<<gs, bs>>>(Gdev_in, Gdev_out, Mres, Nres);
-			kernel_convolucion_AoS_MCONST<<<gs, bs>>>(Bdev_in, Bdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Gdev_in, Gdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Bdev_in, Bdev_out, Mres, Nres);
 			// Unir canales
 			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
 		} else{
@@ -559,7 +597,7 @@ void SoA_MCONST_GPU(){
 			}
 			gs = (int)ceil((float) Mres*Nres / bs);
 			//convolucion
-			kernel_convolucion_AoS_MCONST<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
+			kernel_convolucion_SoA_MCONST<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
 		}
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
@@ -635,34 +673,6 @@ __global__ void kernel_convolucionAoS(float *in, float *out, float *kernel_dev, 
 				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
 				indice_kernel = (1+i) + (1+j)*3;
 				suma += in[indice_sub_matriz] * kernel_dev[indice_kernel];
-			}
-		}
-		// printf("%f\n", suma);
-		out[tid] = suma;
-	}
-}
-
-__global__ void kernel_convolucion_AoS_MCOMP(float *in, float *out, int Mres, int Nres){
-
-	__shared__ int kernel_local[4];
-	kernel_local[0] = 1;
-	kernel_local[1] = 0;
-	kernel_local[2] = 1;
-	kernel_local[3] = -2;
-
-	int tid = threadIdx.x + blockDim.x * blockIdx.x;
-	if (tid < Mres*Nres){
-		int x, y, N_original;
-		x = 1 + tid%Nres; //coordenaas del centro de cada sub_matriz
-		y = 1 + tid/Nres;
-		N_original = Nres*2;
-		float suma = 0;
-		int indice_sub_matriz, indice_kernel;
-		for (int i = -1; i<=1 ; i++){
-			for (int j = -1; j <= 1; j++){
-				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
-				indice_kernel = (1+i) + (1+j)*3;
-				suma += in[indice_sub_matriz] * kernel_local[indice_kernel];
 			}
 		}
 		// printf("%f\n", suma);
@@ -776,20 +786,19 @@ int main(int argc, char **argv){
 	/*
      *  Parte CPU
      */
-	cnn_CPU();
+	// cnn_CPU();
 
 	/*
 	 *  Parte GPU
 	 */
 
 	// Memoria Global
-	AoS_GPU();
-	SoA_GPU();
+	// AoS_GPU();
+	// SoA_GPU();
 
 	// Memoria Compartida
-	// AoS_MC_GPU();
 	SoA_MCOMP_GPU(); // Con Memoria Compartida
-  	SoA_MCONST_GPU(); // Con Memoria Constante
+  	// SoA_MCONST_GPU(); // Con Memoria Constante
 
 	return 0;
 }
