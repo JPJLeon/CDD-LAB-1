@@ -347,7 +347,14 @@ __global__ void kernel_convolucionAoS(float *in, float *out, float *kernel_dev, 
 	}
 }
 
-__global__ void kernel_convolucion_SoA(float *in, float *out, float *kernel_dev, int Mres, int Nres){
+__global__ void kernel_convolucion_AoS_MC(float *in, float *out, int Mres, int Nres){
+
+	__shared__ int kernel_local[4];
+	kernel_local[0] = 1;
+	kernel_local[1] = 0;
+	kernel_local[2] = 1;
+	kernel_local[3] = -2;
+
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if (tid < Mres*Nres){
 		int x, y, N_original;
@@ -360,7 +367,7 @@ __global__ void kernel_convolucion_SoA(float *in, float *out, float *kernel_dev,
 			for (int j = -1; j <= 1; j++){
 				indice_sub_matriz = (x+i)*stride + (y+j)*stride*(N_original);
 				indice_kernel = (1+i) + (1+j)*3;
-				suma += in[indice_sub_matriz] * kernel_dev[indice_kernel];
+				suma += in[indice_sub_matriz] * kernel_local[indice_kernel];
 			}
 		}
 		// printf("%f\n", suma);
@@ -598,6 +605,104 @@ void AoS_GPU(){
 	delete[] hostout;
 }
 
+void AoS_MC_GPU(){
+	//procesamiento de las convoluciones con 3 streams, 1 por cada color
+	cudaEvent_t ct1, ct2;	
+	float dt;
+
+	int M, N, Mres, Nres;
+	int gs, bs = 256;
+	//float array[l_kernel*l_kernel] = {1, 0, 1, -2};
+	// float array[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
+	//float *kernel = new float[l_kernel*l_kernel];
+	//kernel = &array[0];
+
+    float *Rhost, *Ghost, *Bhost, *hostout;
+    float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out; //*kernel_dev;
+
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
+	if(stride == 1){
+		Mres = M - l_kernel + 1;
+		Nres = N - l_kernel + 1;
+	} else{
+		Mres = M/2;
+		Nres = N/2;
+	}
+	gs = (int)ceil((float) Mres*Nres / bs);
+
+	// kernel gpu
+	//cudaMalloc((void**)&kernel_dev, l_kernel * l_kernel * sizeof(float));
+
+	// Arrays de entrada
+	cudaMalloc((void**)&Rdev_in, M * N * sizeof(float));
+    cudaMalloc((void**)&Gdev_in, M * N * sizeof(float));
+    cudaMalloc((void**)&Bdev_in, M * N * sizeof(float));
+    
+    // Array de salida
+    cudaMalloc((void**)&Rdev_out, Mres * Nres * sizeof(float));
+    cudaMalloc((void**)&Gdev_out, Mres * Nres * sizeof(float));
+    cudaMalloc((void**)&Bdev_out, Mres * Nres * sizeof(float));
+    
+    // Copiar en memoria global de GPU
+	cudaMemcpy(Rdev_in, Rhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(Gdev_in, Ghost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(Bdev_in, Bhost, M * N * sizeof(float), cudaMemcpyHostToDevice);
+	//cudaMemcpy(kernel_dev, kernel, l_kernel * l_kernel * sizeof(float), cudaMemcpyHostToDevice);
+
+	cudaEventCreate(&ct1);
+	cudaEventCreate(&ct2);
+	cudaEventRecord(ct1);
+
+	//kernel calls
+	for(int c=0; c<1; c++){
+		if(c == 0){
+			//convolucion
+			kernel_convolucion_AoS_MC<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres);
+			kernel_convolucion_AoS_MC<<<gs, bs>>>(Gdev_in, Gdev_out, Mres, Nres);
+			kernel_convolucion_AoS_MC<<<gs, bs>>>(Bdev_in, Bdev_out, Mres, Nres);
+			// Unir canales
+			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
+		} else{
+			if(stride == 1){
+				Mres = M - l_kernel + 1;
+				Nres = N - l_kernel + 1;
+			} else{
+				Mres = Mres/2;
+				Nres = Nres/2;
+			}
+			gs = (int)ceil((float) Mres*Nres / bs);
+			//convolucion
+			kernel_convolucion_AoS_MC<<<gs, bs>>>(Rdev_out, Rdev_out, Mres, Nres);
+		}
+	}
+	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
+	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	int N_original = Nres;
+	Nres = Nres/2;
+	Mres = Mres/2;
+	gs = (int)ceil((float) Mres*Nres / bs);
+	Rdev_in = Rdev_out;
+	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
+
+	cudaEventRecord(ct2);
+	cudaEventSynchronize(ct2);
+	cudaEventElapsedTime(&dt, ct1, ct2);
+
+	hostout = new float[Mres*Nres];
+	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
+	
+	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	// ShowMatrix(hostout, Mres, Nres);
+
+	Write(hostout, Mres, Nres, "Resultado_AoS_MC.txt\0");
+
+	std::cout << "Tiempo AoS con MC" << ": " << dt << "[ms]" << std::endl;
+	cudaFree(Rdev_in); cudaFree(Gdev_in); cudaFree(Bdev_in);
+	cudaFree(Rdev_out); cudaFree(Gdev_out); cudaFree(Bdev_out);
+	delete[] Rhost; delete[] Ghost; delete[] Bhost;
+	delete[] hostout;
+}
+
 /*
  *  Procesamiento Streams GPU
  */
@@ -670,6 +775,9 @@ int main(int argc, char **argv){
 	//AoS_GPU(); 
 	SoA_GPU();
 
+	AoS_GPU(); // Con Memoria Global
+	AoS_MC_GPU(); // Con Memoria Compartida
+	
 	/*
 	 *  Memoria Global
 	 */
