@@ -631,8 +631,8 @@ __global__ void kernel_poolingAoS(float *in, float *out, int Mres, int Nres, int
 		float valores[4] = {
 			in[x*2 + y*2*(N_original)],
 			in[x*2 + 1 + y*2*(N_original)],
-			in[x*2 + (y+1)*(N_original)],
-			in[x*2 + 1 + (y+1)*(N_original)]
+			in[x*2 + (y*2+1)*(N_original)],
+			in[x*2 + 1 + (y*2+1)*(N_original)]
 		};
 		for (int i = 0; i< 4; i++){
 			if (valores[i] > max){
@@ -680,13 +680,8 @@ void AoS_GPU(){
     float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out, *kernel_dev;
 
 	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
-	if(stride == 1){
-		Mres = M - l_kernel + 1;
-		Nres = N - l_kernel + 1;
-	} else{
-		Mres = M/2;
-		Nres = N/2;
-	}
+	Mres = M/2;
+	Nres = N/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
 
 	// kernel gpu
@@ -770,19 +765,20 @@ int main(int argc, char **argv){
 	/*
      *  Parte CPU
      */
-	// cnn_CPU();
+	cnn_CPU(); // 22[ms]
 
 	/*
 	 *  Parte GPU
 	 */
 
 	// Memoria Global
-	// AoS_GPU();
-	// SoA_GPU();
+	AoS_GPU(); // AoS 0.44032[ms]
 
-	// Memoria Compartida
-	// SoA_MCOMP_GPU(); // Con Memoria Compartida
-  	SoA_MCONST_GPU(); // Con Memoria Constante
+	SoA_GPU(); // SoA 0.29184[ms]
+
+	// Memoria Compartida con SoA
+	SoA_MCOMP_GPU(); // Memoria Compartida 0.289792[ms]
+  	SoA_MCONST_GPU(); //Memoria Constante 0.289792
 
 	return 0;
 }
