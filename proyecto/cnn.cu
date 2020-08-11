@@ -53,18 +53,17 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
             for(int j = 0; j < Y; j++)
                 for(int ii = 0; ii < Nres; ii++)
                     for(int i = 0; i < X; i++)
-                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
-                        printf("%d ", (i + j * X) * (Mres*Nres) + (ii + jj * Nres));
+                        fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
         for(int  jj = 0; jj < Mres; jj++)
             for(int j = 0; j < Y; j++)
                 for(int ii = 0; ii < Nres; ii++)
                     for(int i = 0; i < X; i++)
-                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
+                        fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
         for(int  jj = 0; jj < Mres; jj++)
             for(int j = 0; j < Y; j++)
                 for(int ii = 0; ii < Nres; ii++)
                     for(int i = 0; i < X; i++)
-                        // fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
+                        fscanf(fp, "%f ", &(R1[(i + j * X) * (Mres*Nres) + (ii + jj * Nres)]));
 	}
     fclose(fp);
     *R = R1; *G = G1; *B = B1;
@@ -74,22 +73,6 @@ void Read(float** R, float** G, float** B, int *M, int *N, const char *filename,
  *  Escritura Archivo
  */
 void Write(float* out, int M_out, int N_out, const char *filename) {
-    FILE *fp;
-    fp = fopen(filename, "w");
-    fprintf(fp, "%d %d\n", M_out, N_out);
-    for(int i = 0; i < M_out*N_out-1; i++)
-        fprintf(fp, "%f ", out[i]);
-    fprintf(fp, "%f\n", out[M_out*N_out-1]);
-    for(int i = 0; i < M_out*N_out-1; i++)
-        fprintf(fp, "%f ", out[i]);
-    fprintf(fp, "%f\n", out[M_out*N_out-1]);
-    for(int i = 0; i < M_out*N_out-1; i++)
-        fprintf(fp, "%f ", out[i]);
-    fprintf(fp, "%f\n", out[M_out*N_out-1]);
-    fclose(fp);
-}
-
-void Write_SoA(float* out, int M_out, int N_out, const char *filename) {
     FILE *fp;
     fp = fopen(filename, "w");
     fprintf(fp, "%d %d\n", M_out, N_out);
@@ -236,15 +219,15 @@ void cnn_CPU(){
 	ShowMatrix(kernel, l_kernel, l_kernel);
 
 	float *output_image; // Conjunto de imagenes(matrices) de salida por kernel
-	printf("Matriz original: %d x %d\n", M, N);
+	// printf("Matriz original: %d x %d\n", M, N);
 	t1 = clock();
 	// ShowMatrix(Rhost, M, N);
 	// Por cada proceso de convolucion
-    for(int c=0; c<1; c++){
+    for(int c=0; c<2; c++){
     	// printf("\n########## Convolucion %d ###########\n", c+1);
 		// Actualizamos N,M si aun se puede
 		int N_original = N;
-		printf("M: %d N: %d\n", M, N);
+		// printf("M: %d N: %d\n", M, N);
 		N = N/stride;
 		M = M/stride;
 		// Si es el primero se suman las matrices RGB resultantes
@@ -259,13 +242,13 @@ void cnn_CPU(){
 			// ShowMatrix(output_image, stride*M, stride*N);
 			ConvolucionCPU(output_image, &output_image, kernel, M, N, N_original);
 		}
-		printf("Matriz Convolucion %d: %d x %d\n", c+1, M, N);
+		// printf("Matriz Convolucion %d: %d x %d\n", c+1, M, N);
 		// ShowMatrix(output_image, M, N);
     }
 
 	ReluCPU(output_image, M, N);
-    // PoolingCPU(&output_image, &M, &N);
-    // printf("Matriz Pooling: %d x %d\n", M, N);
+    PoolingCPU(&output_image, &M, &N);
+    printf("Imagen Salida CPU: %d x %d\n", M, N);
 
     t2 = clock();
     ms = 1000.0 * (double)(t2 - t1) / CLOCKS_PER_SEC;
@@ -375,36 +358,48 @@ __global__ void kernel_convolucion_AoS_MC(float *in, float *out, int Mres, int N
 	}
 }
 
-__global__ void kernel_pooling_SoA(float *in, float *out, int Mres, int Nres, int N_original){
-	int tid = threadIdx.x + blockDim.x * blockIdx.x;
-	if(tid < Nres*Mres){ //1 thread para cada pixel de salida
-		float max = 0.0;
-		int x, y, col = 0;
-		x = (tid%Nres);
-		y = (tid/Nres);
-
-		// Si N_original es impar, el pooling del borde se almacena con este thread
-		if(!N_original%2 && x+1 == N_original-1){
-			col = tid%Mres;
-		}
-		float valores[4] = {
-			in[x*2 + y*2*(N_original)],
-			in[x*2 + 1 + y*2*(N_original)],
-			in[x*2 + (y+1)*(N_original)],
-			in[x*2 + 1 + (y+1)*(N_original)]
-		};
-		for (int i = 0; i< 4; i++){
-			if (valores[i] > max){
-				max = valores[i];
-			}
-		}
-		out[tid - col] = max;
-	}
-}
-
 /*
  *  Procesamiento SoA GPU
  */
+__global__ void kernel_poolingSoA(float *in, float *out, int Mres, int Nres, int N_original){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid < Mres*Nres){
+	    float max = 0.0;
+	    for(int i=0; i<l_kernel*l_kernel; i++){
+	    	float actual = in[tid + i * Mres* Nres];
+	    	if (actual > max){
+				max = actual;
+			}
+	    }
+		out[tid] = max;
+	}
+}
+
+__device__ int kernel_ordenSoA(int tid, int Mres, int Nres){
+	int x_pix, y_pix, x_block, y_block, x_dentro_del_bloque, y_dentro_del_bloque;
+	x_pix = tid%(Mres*stride);
+	y_pix = tid/(Nres*stride);
+	x_block = x_pix/stride;
+	y_block = y_pix/stride;
+	x_dentro_del_bloque = x_pix%stride;
+	y_dentro_del_bloque = y_pix%stride;
+	return (x_dentro_del_bloque + y_dentro_del_bloque * l_kernel) * (Mres*Nres) + (x_block + y_block * Nres);
+}
+
+__global__ void kernel_convolucionSoA(float *in, float *out, float *kernel_dev, int Mres, int Nres){
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid < Mres*Nres){
+	    float suma = 0.0;
+	    for(int i=0; i<l_kernel*l_kernel; i++){
+	        suma += in[tid + i * Mres* Nres] * kernel_dev[i];
+	    }
+	    // Almacenamos como SoA en la imagen de salida
+	    int id = kernel_ordenSoA(tid, Mres/2, Nres/2);
+	    // printf("Mres: %d Nres: %d tid: %d id: %d\n", Mres/2, Nres/2, tid, id);
+	    out[id] = suma;
+	}
+}
+
 void SoA_GPU(){
 	//procesamiento de las convoluciones con 3 streams, 1 por cada color
 	cudaEvent_t ct1, ct2;	
@@ -420,14 +415,11 @@ void SoA_GPU(){
     float *Rhost, *Ghost, *Bhost, *hostout;
     float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out, *kernel_dev;
 
-	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
-	if(stride == 1){
-		Mres = M - l_kernel + 1;
-		Nres = N - l_kernel + 1;
-	} else{
-		Mres = M/2;
-		Nres = N/2;
-	}
+	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 1);
+	
+	Mres = M/2;
+	Nres = N/2;
+	
 	gs = (int)ceil((float) Mres*Nres / bs);
 
 	// kernel gpu
@@ -454,35 +446,31 @@ void SoA_GPU(){
 	cudaEventRecord(ct1);
 
 	//kernel calls
-	for(int c=0; c<1; c++){
+	for(int c=0; c<2; c++){
 		if(c == 0){
 			//convolucion
-			kernel_convolucionAoS<<<gs, bs>>>(Rdev_in, Rdev_out, kernel_dev, Mres, Nres);
-			kernel_convolucionAoS<<<gs, bs>>>(Gdev_in, Gdev_out, kernel_dev, Mres, Nres);
-			kernel_convolucionAoS<<<gs, bs>>>(Bdev_in, Bdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionSoA<<<gs, bs>>>(Rdev_in, Rdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionSoA<<<gs, bs>>>(Gdev_in, Gdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionSoA<<<gs, bs>>>(Bdev_in, Bdev_out, kernel_dev, Mres, Nres);
 			// Unir canales
 			kernel_sum<<<gs, bs>>>(Rdev_out, Gdev_out, Bdev_out, Rdev_out, Mres, Nres);
-		} else{
-			if(stride == 1){
-				Mres = M - l_kernel + 1;
-				Nres = N - l_kernel + 1;
-			} else{
-				Mres = Mres/2;
-				Nres = Nres/2;
-			}
+		} 
+		else{
+			Mres = Mres/2;
+			Nres = Nres/2;
 			gs = (int)ceil((float) Mres*Nres / bs);
 			//convolucion
-			kernel_convolucionAoS<<<gs, bs>>>(Rdev_out, Rdev_out, kernel_dev, Mres, Nres);
+			kernel_convolucionSoA<<<gs, bs>>>(Rdev_out, Rdev_out, kernel_dev, Mres, Nres);
 		}
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
-	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	// printf("Imagen salida: %d x %d\n", Mres, Nres);
 	int N_original = Nres;
 	Nres = Nres/2;
 	Mres = Mres/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
 	Rdev_in = Rdev_out;
-	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
+	kernel_poolingSoA<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
 
 	cudaEventRecord(ct2);
 	cudaEventSynchronize(ct2);
@@ -491,12 +479,12 @@ void SoA_GPU(){
 	hostout = new float[Mres*Nres];
 	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
 	
-	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	printf("Imagen salida SoA: %d x %d\n", Mres, Nres);
 	// ShowMatrix(hostout, Mres, Nres);
 
-	Write(hostout, Mres, Nres, "ResultadoAoS.txt\0");
+	Write(hostout, Mres, Nres, "ResultadoSoA.txt\0");
 
-	std::cout << "Tiempo AoS" << ": " << dt << "[ms]" << std::endl;
+	std::cout << "Tiempo SoA" << ": " << dt << "[ms]" << std::endl;
 	cudaFree(Rdev_in); cudaFree(Gdev_in); cudaFree(Bdev_in);
 	cudaFree(Rdev_out); cudaFree(Gdev_out); cudaFree(Bdev_out);
 	delete[] Rhost; delete[] Ghost; delete[] Bhost;
@@ -556,7 +544,7 @@ void AoS_GPU(){
 	cudaEventRecord(ct1);
 
 	//kernel calls
-	for(int c=0; c<1; c++){
+	for(int c=0; c<2; c++){
 		if(c == 0){
 			//convolucion
 			kernel_convolucionAoS<<<gs, bs>>>(Rdev_in, Rdev_out, kernel_dev, Mres, Nres);
@@ -578,7 +566,7 @@ void AoS_GPU(){
 		}
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
-	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	// printf("Imagen salida: %d x %d\n", Mres, Nres);
 	int N_original = Nres;
 	Nres = Nres/2;
 	Mres = Mres/2;
@@ -593,7 +581,7 @@ void AoS_GPU(){
 	hostout = new float[Mres*Nres];
 	cudaMemcpy(hostout, Rdev_out, Mres * Nres * sizeof(float), cudaMemcpyDeviceToHost);
 	
-	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	printf("Imagen salida AoS: %d x %d\n", Mres, Nres);
 	// ShowMatrix(hostout, Mres, Nres);
 
 	Write(hostout, Mres, Nres, "ResultadoAoS.txt\0");
@@ -676,7 +664,7 @@ void AoS_MC_GPU(){
 		}
 	}
 	kernel_relu<<<gs, bs>>>(Rdev_out, Mres, Nres);
-	printf("Imagen salida: %d x %d\n", Mres, Nres);
+	// printf("Imagen salida: %d x %d\n", Mres, Nres);
 	int N_original = Nres;
 	Nres = Nres/2;
 	Mres = Mres/2;
@@ -711,72 +699,21 @@ void AoS_MC_GPU(){
  *  Codigo Principal
  */
 
-// void streams (){
-// 	//procesamiento de las convoluciones con 3 streams, 1 por cada color
-// 	cudaEvent_t ct1, ct2;	
-// 	float dt;
-
-// 	int M, N;
-// 	int gs, bs = 256;
-
-// 	float kernel[l_kernel*l_kernel] = {0, 1, 0, 1, -4, 1, 0, 1, 0}; // Conjunto de kernel(matrices) a usar
-//     float *Rhost, *Ghost, *Bhost;
-//     float *Rhostout;
-
-//     Rhostout = new float[l_kernel*l_kernel];
-
-// 	//crear streams
-// 	cudaStream_t str1, str2, str3;
-// 	cudaStreamCreate(&str1);
-// 	cudaStreamCreate(&str2);
-// 	cudaStreamCreate(&str3);
-
-// 	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img_test.txt", 1);
-// 	//gs = (int)ceil((float) (M/3) / bs);   
-
-// 	cudaMemcpyAsync(&f_in[size*0], &f_host[size*0], size * sizeof(float), cudaMemcpyHostToDevice, str1);
-// 	cudaMemcpyAsync(&f_in[size*1], &f_host[size*1], size * sizeof(float), cudaMemcpyHostToDevice, str2);
-// 	cudaMemcpyAsync(&f_in[size*2], &f_host[size*2], size * sizeof(float), cudaMemcpyHostToDevice, str3); 
-
-// 	//kernel calls
-// 	cudaEventCreate(&ct1);
-// 	cudaEventCreate(&ct2);
-// 	cudaEventRecord(ct1);
-
-// 	//convolucion
-// 	//juntar canales
-// 	//max pooling
-
-// 	cudaEventRecord(ct2);
-// 	cudaEventSynchronize(ct2);
-// 	cudaEventElapsedTime(&dt, ct1, ct2);
-
-// 	//solo se copia un canal al host, ya que los 3 canales son iguales
-// 	cudaMemcpyAsync(&out[size*0], &f_in[size*0], size * sizeof(float), cudaMemcpyDeviceToHost,str1);
-
-// 	cudaDeviceSynchronize();
-// 	//Write(out, M, N, "initial_S.txt\0");
-// 	//imprimir_malla(out, N,M);
-// 	std::cout << "Tiempo " << ": " << dt << "[ms]" << std::endl;
-// 	cudaFree(f_host);
-// 	cudaFree(f_in);
-// 	cudaFree(f_out);
-// }
 int main(int argc, char **argv){
 
 	/*
      *  Parte CPU
      */
-	//cnn_CPU();
+	cnn_CPU();
 
 	/*
 	 *  Parte GPU
 	 */
-	//AoS_GPU(); 
+	AoS_GPU();
 	SoA_GPU();
 
-	AoS_GPU(); // Con Memoria Global
-	AoS_MC_GPU(); // Con Memoria Compartida
+	// AoS_GPU(); // Con Memoria Global
+	// AoS_MC_GPU(); // Con Memoria Compartida
 	
 	/*
 	 *  Memoria Global
@@ -791,10 +728,5 @@ int main(int argc, char **argv){
 	 * Streams
 	 */
 
-
-
-
- //    cudaFree(R); cudaFree(G); cudaFree(B);
-	// cudaFree(Rout); cudaFree(Gout); cudaFree(Bout);
 	return 0;
 }
