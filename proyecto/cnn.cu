@@ -512,7 +512,7 @@ void SoA_MCOMP_GPU(){
 /* 
  * Memoria constante SoA
  */
-
+__constant__ int kernel_const[4];
 __global__ void kernel_convolucion_SoA_MCONST(float *in, float *out, int Mres, int Nres){
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	if (tid < Mres*Nres){
@@ -549,13 +549,9 @@ void SoA_MCONST_GPU(){
 	float *Rdev_in, *Gdev_in, *Bdev_in, *Rdev_out, *Gdev_out, *Bdev_out;
 
 	Read(&Rhost, &Ghost, &Bhost, &M, &N, "img.txt", 0);
-	if(stride == 1){
-		Mres = M - l_kernel + 1;
-		Nres = N - l_kernel + 1;
-	} else{
-		Mres = M/2;
-		Nres = N/2;
-	}
+	
+	Mres = M/2;
+	Nres = N/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
 
 	// Arrays de entrada
@@ -607,7 +603,7 @@ void SoA_MCONST_GPU(){
 	Mres = Mres/2;
 	gs = (int)ceil((float) Mres*Nres / bs);
 	Rdev_in = Rdev_out;
-	kernel_poolingAoS<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
+	kernel_poolingSoA<<<gs, bs>>>(Rdev_in, Rdev_out, Mres, Nres, N_original);
 
 	cudaEventRecord(ct2);
 	cudaEventSynchronize(ct2);
